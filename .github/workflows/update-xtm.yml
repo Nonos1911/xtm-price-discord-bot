@@ -1,0 +1,29 @@
+name: Mettre à jour les cours XTM
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update-discord:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Récupérer le projet
+        uses: actions/checkout@v4
+
+      - name: Mettre à jour Discord
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: "1370700962695610430"
+          ALERT_CHANNEL_ID: "1163364187796426776"
+          ALERT_THRESHOLD_PERCENT: "10"
+          ALERT_REPEAT_COUNT: "5"
+          ALERT_INTERVAL_SECONDS: "60"
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+          COINGECKO_API_PLAN: demo
+        run: python src/update_once.py
