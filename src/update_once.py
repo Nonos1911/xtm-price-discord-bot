@@ -169,7 +169,7 @@ def xtm_buy_alert_triggered(quotes: list[dict[str, Any]]) -> bool:
     return bool(xtm_quote and xtm_quote["change"] is not None and xtm_quote["change"] <= -ALERT_THRESHOLD_PERCENT)
 
 
-def send_alert_burst(text: str, color: int, quotes: list[dict[str, Any]]) -> list[str]:
+def send_alert_burst(text: str, color: int, quotes: list[dict[str, Any]], repeat_count: int | None = None) -> list[str]:
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN est absent")
@@ -180,7 +180,8 @@ def send_alert_burst(text: str, color: int, quotes: list[dict[str, Any]]) -> lis
         "allowed_mentions": {"parse": []},
     }
     created_ids: list[str] = []
-    for index in range(ALERT_REPEAT_COUNT):
+    count = ALERT_REPEAT_COUNT if repeat_count is None else repeat_count
+    for index in range(count):
         created = api_json(
             f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages",
             headers=headers,
@@ -189,7 +190,7 @@ def send_alert_burst(text: str, color: int, quotes: list[dict[str, Any]]) -> lis
         )
         created_ids.append(created["id"])
         print(f"alerte {index + 1}/{ALERT_REPEAT_COUNT}: message {created['id']} créé")
-        if index + 1 < ALERT_REPEAT_COUNT:
+        if index + 1 < count:
             time.sleep(ALERT_INTERVAL_SECONDS)
     return created_ids
 
@@ -205,6 +206,11 @@ def main() -> int:
     if not any(quote["price"] is not None for quote in quotes):
         raise RuntimeError("Aucun prix USDT disponible; aucun message n'a été modifié")
     print(update_discord(embed))
+    if os.getenv("TEST_ALERTS", "").strip().lower() == "both_once":
+        print("Test manuel: envoi unique des alertes verte et rouge dans mog-post")
+        send_alert_burst(ALERT_TEXT, 5763719, quotes, repeat_count=1)
+        send_alert_burst(BUY_ALERT_TEXT, 15158332, quotes, repeat_count=1)
+        return 0
     xtm_quote = next(quote for quote in quotes if quote["label"] == "XTM")
     if xtm_alert_triggered(quotes):
         print(f"Variation XTM détectée: {xtm_quote['change']:.2f} %; lancement de l'alerte")

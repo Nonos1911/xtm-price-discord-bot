@@ -67,6 +67,11 @@ Pour l'utiliser :
 4. Dans l'onglet `Actions`, lance `Mettre à jour les cours XTM` une première
    fois avec `Run workflow` pour tester immédiatement.
 
+Pour tester ponctuellement les deux alertes dans `mog-post` sans attendre une
+variation réelle de 10 %, lance le workflow manuellement avec l'option
+`test_alerts = both_once`. Il envoie une seule alerte verte et une seule alerte
+rouge, puis le fonctionnement planifié reste inchangé.
+
 Le bot doit avoir `Voir le salon`, `Envoyer des messages` et `Intégrer des
 liens` dans le salon des prix et dans `mog-post`. La permission de lire
 l'historique n'est pas nécessaire.
