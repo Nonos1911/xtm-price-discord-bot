@@ -20,6 +20,7 @@ ALERT_CHANNEL_ID = os.getenv("ALERT_CHANNEL_ID", "1163364187796426776")
 ALERT_THRESHOLD_PERCENT = float(os.getenv("ALERT_THRESHOLD_PERCENT", "10"))
 ALERT_REPEAT_COUNT = int(os.getenv("ALERT_REPEAT_COUNT", "5"))
 ALERT_INTERVAL_SECONDS = int(os.getenv("ALERT_INTERVAL_SECONDS", "60"))
+PRICE_EMBED_TITLE = "💱 Prix XTM / wXTM"
 ALERT_TEXT = "Alert XTM+10%"
 BUY_ALERT_TEXT = "Alert XTM-10%  GO BUY"
 COINS = [("minotari", "XTM", "MEXC"), ("wrapped-minotari", "wXTM", "Gate")]
@@ -125,11 +126,11 @@ def price_text(quote: dict[str, Any]) -> str:
 
 def build_embed(quotes: list[dict[str, Any]]) -> dict[str, Any]:
     return {
-        "title": "💱 Prix XTM / wXTM",
+        "title": PRICE_EMBED_TITLE,
         "description": "Cours en USDT récupérés sur CoinGecko.",
         "color": 5793266,
         "fields": [{"name": quote["label"], "value": price_text(quote), "inline": True} for quote in quotes],
-        "footer": {"text": "Nouveau message toutes les 5 minutes"},
+        "footer": {"text": "Mise à jour toutes les minutes"},
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -140,6 +141,35 @@ def update_discord(embed: dict[str, Any]) -> str:
         raise RuntimeError("DISCORD_BOT_TOKEN est absent")
     headers = {"Authorization": f"Bot {token}"}
     payload = {"embeds": [embed], "allowed_mentions": {"parse": []}}
+    bot = api_json(f"{DISCORD_BASE}/users/@me", headers=headers)
+    messages = api_json(
+        f"{DISCORD_BASE}/channels/{CHANNEL_ID}/messages?limit=100",
+        headers=headers,
+    )
+    price_messages = [
+        message
+        for message in messages
+        if message.get("author", {}).get("id") == bot.get("id")
+        and any(embed_item.get("title") == PRICE_EMBED_TITLE for embed_item in message.get("embeds", []))
+    ]
+    if price_messages:
+        current = price_messages[0]
+        updated = api_json(
+            f"{DISCORD_BASE}/channels/{CHANNEL_ID}/messages/{current['id']}",
+            headers=headers,
+            method="PATCH",
+            body=payload,
+        )
+        removed = 0
+        for duplicate in price_messages[1:]:
+            api_json(
+                f"{DISCORD_BASE}/channels/{CHANNEL_ID}/messages/{duplicate['id']}",
+                headers=headers,
+                method="DELETE",
+            )
+            removed += 1
+        suffix = f"; {removed} ancien(s) supprimé(s)" if removed else ""
+        return f"message {updated['id']} mis à jour{suffix}"
     created = api_json(f"{DISCORD_BASE}/channels/{CHANNEL_ID}/messages", headers=headers, method="POST", body=payload)
     return f"message {created['id']} créé"
 

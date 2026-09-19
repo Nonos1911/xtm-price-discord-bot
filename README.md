@@ -5,8 +5,8 @@ Ce service récupère le meilleur marché `USDT` indexé par CoinGecko pour :
 - `XTM` = MinoTari (`minotari`), marché USDT **MEXC** ;
 - `wXTM` = Wrapped MinoTari (`wrapped-minotari`), marché USDT **Gate**.
 
-Il publie un nouvel embed dans le salon Discord `1370700962695610430` toutes
-les 5 minutes. Les anciens messages restent dans le salon. Le service est
+Il maintient un seul embed dans le salon Discord `1370700962695610430` et le
+met à jour toutes les minutes. Les anciens embeds de cours sont nettoyés. Le service est
 conçu pour fonctionner dans un worker cloud, donc ton PC peut être éteint.
 
 Si la variation 24 h de XTM atteint `+10 %`, le bot envoie `Alert XTM+10%`
@@ -53,7 +53,7 @@ dépôt public et ne dépend pas de ton PC. Les horaires GitHub peuvent toutefoi
 Le workflow est autonome : il utilise le script `src/update_once.py`, qui ne
 requiert ni Python ni Discord ouverts sur ton ordinateur. Le token reste dans le
 secret GitHub `DISCORD_BOT_TOKEN` et n'est jamais écrit dans le dépôt. Le job
-dispose de six minutes, ce qui couvre la publication du prix et les cinq envois
+dispose de six minutes, ce qui couvre la mise à jour du prix et les cinq envois
 d'alerte espacés d'une minute.
 
 Pour l'utiliser :
