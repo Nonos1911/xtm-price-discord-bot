@@ -43,7 +43,7 @@ s'endort ne garantit pas le rythme de 5 minutes.
 
 ## Option gratuite : GitHub Actions
 
-Le dossier contient aussi `.github/workflows/update-xtm.yml`. Cette variante ne
+Le dossier contient aussi `.github/workflows/price-scheduler.yml`. Cette variante ne
 laisse pas un bot connecté en permanence : GitHub démarre un job toutes les
 5 minutes (à minutes décalées pour limiter les retards du planificateur), envoie
 un nouveau message Discord, puis l'arrête. C'est gratuit sur un
