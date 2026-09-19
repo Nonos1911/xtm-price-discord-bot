@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 import update_once
-from update_once import BUY_ALERT_TEXT, build_alert_embed, build_embed, price_text, select_usdt_ticker, xtm_alert_triggered, xtm_buy_alert_triggered
+from update_once import BUY_ALERT_TEXT, build_alert_embed, build_embed, build_price_embed, price_text, select_usdt_ticker, xtm_alert_triggered, xtm_buy_alert_triggered
 
 
 def test_select_usdt_ticker():
@@ -24,6 +24,7 @@ def test_embed_has_both_assets():
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
     assert "USDT" in price_text({"price": 0.001, "change": 1.5, "market": "MEXC", "error": None})
     assert embed["footer"]["text"] == "Mise à jour toutes les minutes"
+    assert build_price_embed([], "Snapshot du prix toutes les 4 heures")["footer"]["text"] == "Snapshot du prix toutes les 4 heures"
 
 
 def test_xtm_alert_is_positive_and_inclusive():

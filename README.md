@@ -16,6 +16,10 @@ avec un embed rouge, avec la même répétition. Ce message est un signal
 automatique et ne constitue pas un conseil financier. Chaque embed d'alerte
 contient aussi les deux cours XTM/USDT et wXTM/USDT utilisés au déclenchement.
 
+Un cronjob dédié peut lancer le workflow avec `snapshot_only = true` toutes les
+4 heures. Dans ce mode, le bot publie une nouvelle embed ponctuelle dans
+`mog-post` avec les deux prix du moment, sans modifier les snapshots précédents.
+
 ## Discord
 
 Le bot doit être invité sur le serveur et avoir `Voir le salon`, `Envoyer des
@@ -33,8 +37,8 @@ mettre dans l'hébergeur.
    `DISCORD_BOT_TOKEN`.
 2. Conserve `DISCORD_CHANNEL_ID=1370700962695610430`.
 3. Lance le conteneur avec `docker compose up -d --build`.
-4. Aucun volume persistant n'est nécessaire : chaque actualisation crée un
-   nouveau message.
+4. Aucun volume persistant n'est nécessaire : chaque actualisation réutilise
+   la même embed de prix.
 
 Un service de type **worker/background service** convient mieux qu'un site web
 qui s'endort. Railway, Render Background Worker, Fly.io ou un VPS peuvent
@@ -44,9 +48,8 @@ s'endort ne garantit pas le rythme de 5 minutes.
 ## Option gratuite : GitHub Actions
 
 Le dossier contient aussi `.github/workflows/price-scheduler.yml`. Cette variante ne
-laisse pas un bot connecté en permanence : GitHub démarre un job toutes les
-5 minutes (à minutes décalées pour limiter les retards du planificateur), envoie
-un nouveau message Discord, puis l'arrête. C'est gratuit sur un
+laisse pas un bot connecté en permanence : le planificateur externe démarre un job
+toutes les minutes, met à jour une seule embed dans le salon des prix, puis l'arrête. C'est gratuit sur un
 dépôt public et ne dépend pas de ton PC. Les horaires GitHub peuvent toutefois
 être décalés en période de charge.
 
@@ -73,9 +76,13 @@ variation réelle de 10 %, lance le workflow manuellement avec l'option
 `test_alerts = both_once`. Il envoie une seule alerte verte et une seule alerte
 rouge, puis le fonctionnement planifié reste inchangé.
 
-Le bot doit avoir `Voir le salon`, `Envoyer des messages` et `Intégrer des
-liens` dans le salon des prix et dans `mog-post`. La permission de lire
-l'historique n'est pas nécessaire.
+Pour tester un snapshot, lance le workflow avec `snapshot_only = true`. Le
+cronjob de quatre heures utilise cette option et publie dans `mog-post` sans
+remplacer la box actualisée dans le salon des prix.
+
+Le bot doit avoir `Voir le salon`, `Envoyer des messages`, `Lire l'historique
+des messages` et `Intégrer des liens` dans le salon des prix et dans
+`mog-post`.
 
 ## Test local ponctuel
 

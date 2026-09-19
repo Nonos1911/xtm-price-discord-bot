@@ -11,6 +11,14 @@ name: Prix XTM planifiés
           - none
           - both_once
         default: none
+      snapshot_only:
+        description: "Publier un snapshot ponctuel dans mog-post"
+        required: false
+        type: choice
+        options:
+          - false
+          - true
+        default: false
 
 permissions:
   contents: read
@@ -32,6 +40,7 @@ jobs:
           ALERT_REPEAT_COUNT: "5"
           ALERT_INTERVAL_SECONDS: "60"
           TEST_ALERTS: ${{ inputs.test_alerts || 'none' }}
+          SNAPSHOT_ONLY: ${{ inputs.snapshot_only || 'false' }}
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
           COINGECKO_API_PLAN: demo
         run: python src/update_once.py

@@ -125,12 +125,16 @@ def price_text(quote: dict[str, Any]) -> str:
 
 
 def build_embed(quotes: list[dict[str, Any]]) -> dict[str, Any]:
+    return build_price_embed(quotes, "Mise à jour toutes les minutes")
+
+
+def build_price_embed(quotes: list[dict[str, Any]], footer_text: str) -> dict[str, Any]:
     return {
         "title": PRICE_EMBED_TITLE,
         "description": "Cours en USDT récupérés sur CoinGecko.",
         "color": 5793266,
         "fields": [{"name": quote["label"], "value": price_text(quote), "inline": True} for quote in quotes],
-        "footer": {"text": "Mise à jour toutes les minutes"},
+        "footer": {"text": footer_text},
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -172,6 +176,21 @@ def update_discord(embed: dict[str, Any]) -> str:
         return f"message {updated['id']} mis à jour{suffix}"
     created = api_json(f"{DISCORD_BASE}/channels/{CHANNEL_ID}/messages", headers=headers, method="POST", body=payload)
     return f"message {created['id']} créé"
+
+
+def publish_snapshot(embed: dict[str, Any]) -> str:
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("DISCORD_BOT_TOKEN est absent")
+    headers = {"Authorization": f"Bot {token}"}
+    payload = {"embeds": [embed], "allowed_mentions": {"parse": []}}
+    created = api_json(
+        f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages",
+        headers=headers,
+        method="POST",
+        body=payload,
+    )
+    return f"snapshot {created['id']} publié dans mog-post"
 
 
 def build_alert_embed(text: str, color: int, quotes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -235,6 +254,10 @@ def main() -> int:
         return 0
     if not any(quote["price"] is not None for quote in quotes):
         raise RuntimeError("Aucun prix USDT disponible; aucun message n'a été modifié")
+    if os.getenv("SNAPSHOT_ONLY", "false").strip().lower() == "true":
+        snapshot = build_price_embed(quotes, "Snapshot du prix toutes les 4 heures")
+        print(publish_snapshot(snapshot))
+        return 0
     print(update_discord(embed))
     if os.getenv("TEST_ALERTS", "").strip().lower() == "both_once":
         print("Test manuel: envoi unique des alertes verte et rouge dans mog-post")
