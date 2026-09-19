@@ -10,11 +10,11 @@ permissions:
 
 jobs:
   update-discord:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
       - name: Récupérer le projet
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Mettre à jour Discord
         env:
