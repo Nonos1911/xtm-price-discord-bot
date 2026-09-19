@@ -45,7 +45,8 @@ s'endort ne garantit pas le rythme de 5 minutes.
 
 Le dossier contient aussi `.github/workflows/update-xtm.yml`. Cette variante ne
 laisse pas un bot connecté en permanence : GitHub démarre un job toutes les
-5 minutes, envoie un nouveau message Discord, puis l'arrête. C'est gratuit sur un
+5 minutes (à minutes décalées pour limiter les retards du planificateur), envoie
+un nouveau message Discord, puis l'arrête. C'est gratuit sur un
 dépôt public et ne dépend pas de ton PC. Les horaires GitHub peuvent toutefois
 être décalés en période de charge.
 
