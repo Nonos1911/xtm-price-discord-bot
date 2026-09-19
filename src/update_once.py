@@ -224,9 +224,9 @@ def send_alert_burst(text: str, color: int, quotes: list[dict[str, Any]], repeat
         raise RuntimeError("DISCORD_BOT_TOKEN est absent")
     headers = {"Authorization": f"Bot {token}"}
     payload = {
-        "content": text,
+        "content": f"@everyone {text}",
         "embeds": [build_alert_embed(text, color, quotes)],
-        "allowed_mentions": {"parse": []},
+        "allowed_mentions": {"parse": ["everyone"]},
     }
     created_ids: list[str] = []
     count = ALERT_REPEAT_COUNT if repeat_count is None else repeat_count

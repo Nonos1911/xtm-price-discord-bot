@@ -74,3 +74,18 @@ def test_update_discord_reuses_one_price_message_and_removes_duplicates(monkeypa
     assert result == "message new-price mis à jour; 1 ancien(s) supprimé(s)"
     assert calls[2][1] == "PATCH"
     assert calls[3][1] == "DELETE"
+
+
+def test_alert_burst_mentions_everyone_once(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method, body))
+        return {"id": "alert-message"}
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    update_once.send_alert_burst("Alert XTM+10%", 5763719, [], repeat_count=1)
+
+    assert calls[0][2]["content"] == "@everyone Alert XTM+10%"
+    assert calls[0][2]["allowed_mentions"] == {"parse": ["everyone"]}
