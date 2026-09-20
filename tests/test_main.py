@@ -1,15 +1,18 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from main import (
     PriceQuote,
+    alert_milestone,
     alert_quotes_for_direction,
     format_change,
     format_group_alert_text,
     format_price,
     is_alert_title,
+    message_notified_milestone,
     parse_coin_config,
     select_usdt_ticker,
 )
@@ -65,3 +68,21 @@ def test_worker_alerts_can_trigger_both_assets_and_both_directions_independently
     assert [quote.label for quote in rising] == ["XTM"]
     assert [quote.label for quote in falling] == ["wXTM"]
     assert format_group_alert_text(falling, upward=False, threshold=10) == "Alert wXTM-17.19%  GO BUY"
+
+
+def test_worker_everyone_notifications_follow_ten_percent_steps():
+    quote = PriceQuote("wrapped-minotari", "wXTM", 0.002, 29.99, "Gate", "Gate", 1)
+    assert alert_milestone([quote]) == 20
+    assert alert_milestone([PriceQuote("minotari", "XTM", 0.001, -300.0, "MEXC", "MEXC", 1)]) == 300
+
+    marked = SimpleNamespace(
+        mention_everyone=False,
+        embeds=[SimpleNamespace(footer=SimpleNamespace(text="Palier @everyone notifié : +20%"), title="Alert wXTM+29.99%")],
+    )
+    assert message_notified_milestone(marked, upward=True) == 20
+
+    legacy = SimpleNamespace(
+        mention_everyone=True,
+        embeds=[SimpleNamespace(footer=SimpleNamespace(text=None), title="Alert wXTM+29.99%")],
+    )
+    assert message_notified_milestone(legacy, upward=True) == 20

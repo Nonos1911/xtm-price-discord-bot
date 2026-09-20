@@ -5,6 +5,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 import update_once
 from update_once import (
+    alert_milestone,
     alert_quotes_for_direction,
     build_alert_embed,
     build_embed,
@@ -146,13 +147,14 @@ def test_update_discord_reuses_one_price_message_and_removes_duplicates(monkeypa
     assert calls[3][1] == "DELETE"
 
 
-def test_upsert_alert_edits_same_message_without_pinging_again(monkeypatch):
+def test_upsert_alert_replaces_previous_message_without_repinging_same_ten_percent_step(monkeypatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
     calls = []
     responses = iter([
         {"id": "bot-id"},
         [{"id": "alert-message", "author": {"id": "bot-id"}, "content": "@everyone Alert XTM+10%", "mention_everyone": True, "embeds": [{"title": "Alert XTM+10%"}]}],
-        {"id": "alert-message"},
+        {"id": "fresh-alert"},
+        None,
     ])
 
     def fake_api_json(url, *, headers=None, method="GET", body=None):
@@ -160,13 +162,20 @@ def test_upsert_alert_edits_same_message_without_pinging_again(monkeypatch):
         return next(responses)
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
-    result = update_once.upsert_alert("Alert wXTM+12.5%", 5763719, [], upward=True)
+    result = update_once.upsert_alert(
+        "Alert wXTM+12.5%", 5763719,
+        [{"label": "wXTM", "price": 0.002, "change": 12.5, "market": "Gate", "error": None}],
+        upward=True,
+    )
 
-    assert result == "alerte Alert wXTM+12.5% mise à jour dans le message alert-message"
-    assert calls[2][1] == "PATCH"
-    assert calls[2][2]["content"] == "@everyone Alert wXTM+12.5%"
+    assert result == "nouveau message d'alerte fresh-alert publié; 1 ancienne(s) alerte(s) supprimée(s)"
+    assert calls[2][1] == "POST"
+    assert calls[2][2]["content"] == "Alert wXTM+12.5%"
     assert calls[2][2]["allowed_mentions"] == {"parse": []}
     assert calls[2][2]["embeds"][0]["title"] == "Alert wXTM+12.5%"
+    assert calls[2][2]["embeds"][0]["footer"]["text"] == "Palier @everyone notifié : +10%"
+    assert calls[3][1] == "DELETE"
+    assert calls[3][0].endswith("/alert-message")
 
 
 def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
@@ -179,11 +188,49 @@ def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
         return next(responses)
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
-    update_once.upsert_alert("Alert XTM-10%  GO BUY", 15158332, [], upward=False)
+    update_once.upsert_alert(
+        "Alert XTM-10%  GO BUY", 15158332,
+        [{"label": "XTM", "price": 0.001, "change": -10, "market": "MEXC", "error": None}],
+        upward=False,
+    )
 
     assert calls[2][1] == "POST"
     assert calls[2][2]["content"] == "@everyone Alert XTM-10%  GO BUY"
     assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
+    assert calls[2][2]["embeds"][0]["footer"]["text"] == "Palier @everyone notifié : -10%"
+
+
+def test_upsert_alert_pings_again_only_when_next_ten_percent_milestone_is_reached(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+    responses = iter([
+        {"id": "bot-id"},
+        [{
+            "id": "previous-alert",
+            "author": {"id": "bot-id"},
+            "mention_everyone": False,
+            "embeds": [{"title": "Alert wXTM+19.7%", "footer": {"text": "Palier @everyone notifié : +10%"}}],
+        }],
+        {"id": "milestone-20-alert"},
+        None,
+    ])
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method, body))
+        return next(responses)
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    update_once.upsert_alert(
+        "Alert wXTM+20.1%", 5763719,
+        [{"label": "wXTM", "price": 0.002, "change": 20.1, "market": "Gate", "error": None}],
+        upward=True,
+    )
+
+    assert calls[2][1] == "POST"
+    assert calls[2][2]["content"] == "@everyone Alert wXTM+20.1%"
+    assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
+    assert calls[2][2]["embeds"][0]["footer"]["text"] == "Palier @everyone notifié : +20%"
+    assert calls[3][1] == "DELETE"
 
 
 def test_upsert_alert_adds_everyone_once_to_legacy_message(monkeypatch):
@@ -192,7 +239,8 @@ def test_upsert_alert_adds_everyone_once_to_legacy_message(monkeypatch):
     responses = iter([
         {"id": "bot-id"},
         [{"id": "legacy-alert", "author": {"id": "bot-id"}, "content": "Alert XTM+10%", "mention_everyone": False, "embeds": [{"title": "Alert XTM+10%"}]}],
-        {"id": "legacy-alert"},
+        {"id": "fresh-alert"},
+        None,
     ])
 
     def fake_api_json(url, *, headers=None, method="GET", body=None):
@@ -200,11 +248,16 @@ def test_upsert_alert_adds_everyone_once_to_legacy_message(monkeypatch):
         return next(responses)
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
-    update_once.upsert_alert("Alert XTM+20%", 5763719, [], upward=True)
+    update_once.upsert_alert(
+        "Alert XTM+20%", 5763719,
+        [{"label": "XTM", "price": 0.001, "change": 20, "market": "MEXC", "error": None}],
+        upward=True,
+    )
 
-    assert calls[2][1] == "PATCH"
+    assert calls[2][1] == "POST"
     assert calls[2][2]["content"] == "@everyone Alert XTM+20%"
     assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
+    assert calls[3][1] == "DELETE"
 
 
 def test_test_alert_label_is_separate_from_live_alert(monkeypatch):
@@ -291,3 +344,11 @@ def test_verify_fake_progression_checks_one_mentioned_box_per_direction(monkeypa
     assert len(calls) == 2
     assert all(method == "GET" for _, method in calls)
     assert "mention_everyone=True" in capsys.readouterr().out
+
+
+def test_alert_milestone_is_each_ten_percent_and_capped_at_300():
+    assert alert_milestone([{"change": 17.19}]) == 10
+    assert alert_milestone([{"change": 20.0}]) == 20
+    assert alert_milestone([{"change": -39.99}]) == 30
+    assert alert_milestone([{"change": 450.0}]) == 300
+    assert alert_milestone([]) == 0

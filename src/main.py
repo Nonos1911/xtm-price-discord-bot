@@ -9,7 +9,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -23,6 +25,8 @@ from discord.ext import tasks
 
 LOGGER = logging.getLogger("xtm-price-bot")
 ALERT_PREFIX = "Alert "
+ALERT_MILESTONE_FOOTER = "Palier @everyone notifié : "
+ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)([+-])(\d+(?:\.\d+)?)%")
 
 
 def env_int(name: str, default: int) -> int:
@@ -142,6 +146,33 @@ def format_group_alert_text(
 
 def is_alert_title(title: str, *, upward: bool) -> bool:
     return title.startswith(ALERT_PREFIX) and ("+" in title if upward else "-" in title)
+
+
+def alert_milestone(quotes: list["PriceQuote"]) -> int:
+    changes = [abs(quote.change_24h) for quote in quotes if quote.change_24h is not None]
+    if not changes:
+        return 0
+    magnitude = min(300.0, max(changes))
+    return int(math.floor((magnitude + 1e-9) / 10.0) * 10)
+
+
+def message_notified_milestone(message: discord.Message, *, upward: bool) -> int:
+    sign = "+" if upward else "-"
+    for embed in message.embeds:
+        footer_text = embed.footer.text or ""
+        marker = re.search(r"Palier @everyone notifié : ([+-])(\d+)%", footer_text)
+        if marker and marker.group(1) == sign:
+            return int(marker.group(2))
+
+    if not message.mention_everyone:
+        return 0
+    values = [
+        float(match.group(2))
+        for embed in message.embeds
+        for match in ALERT_PERCENT_RE.finditer(embed.title or "")
+        if match.group(1) == sign
+    ]
+    return alert_milestone([PriceQuote("", "", None, value, None, "", None) for value in values])
 
 
 @dataclass(frozen=True)
@@ -321,37 +352,44 @@ class PriceBot(discord.Client):
 
         bot_id = self.user.id if self.user else None
         history = getattr(channel, "history", None)
-        existing = None
+        existing_messages = []
         if bot_id is not None and history is not None:
             async for message in history(limit=100):
                 if message.author.id != bot_id:
                     continue
                 if any(embed.title and is_alert_title(embed.title, upward=upward) for embed in message.embeds):
-                    existing = message
-                    break
+                    existing_messages.append(message)
 
-        content = f"@everyone {text}"
-        if existing is not None:
-            # If an old alert was created before mentions were enabled, add the
-            # mention once; never ping again on later edits.
-            allowed_mentions = (
+        previous_milestone = max(
+            (message_notified_milestone(message, upward=upward) for message in existing_messages),
+            default=0,
+        )
+        current_milestone = alert_milestone(quotes)
+        should_notify = current_milestone > previous_milestone
+        stored_milestone = max(previous_milestone, current_milestone)
+        sign = "+" if upward else "-"
+        alert_embed.set_footer(text=f"{ALERT_MILESTONE_FOOTER}{sign}{stored_milestone}%")
+        content = f"@everyone {text}" if should_notify else text
+        created = await channel.send(  # type: ignore[attr-defined]
+            content=content,
+            embed=alert_embed,
+            allowed_mentions=(
                 discord.AllowedMentions(everyone=True)
-                if not existing.mention_everyone
+                if should_notify
                 else discord.AllowedMentions.none()
-            )
-            await existing.edit(
-                content=content,
-                embed=alert_embed,
-                allowed_mentions=allowed_mentions,
-            )
-            LOGGER.info("Alerte mise à jour dans le même message (%s)", existing.id)
-        else:
-            await channel.send(  # type: ignore[attr-defined]
-                content=content,
-                embed=alert_embed,
-                allowed_mentions=discord.AllowedMentions(everyone=True),
-            )
-            LOGGER.info("Nouvelle alerte publiée : %s", text)
+            ),
+        )
+        deleted = 0
+        for old_message in existing_messages:
+            await old_message.delete()
+            deleted += 1
+        ping = f"; @everyone au palier {sign}{current_milestone}%" if should_notify else ""
+        LOGGER.info(
+            "Nouvelle alerte publiée (%s); %s ancienne(s) supprimée(s)%s",
+            created.id,
+            deleted,
+            ping,
+        )
 
     def start_alert_if_needed(self, quotes: list[PriceQuote]) -> None:
         for upward, colour in ((True, discord.Colour.green()), (False, discord.Colour.red())):

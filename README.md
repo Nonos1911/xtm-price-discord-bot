@@ -10,18 +10,22 @@ met à jour toutes les minutes. Les anciens embeds de cours sont nettoyés. Le s
 conçu pour fonctionner dans un worker cloud, donc ton PC peut être éteint.
 
 Le bot surveille séparément les variations 24 h de `XTM` et `wXTM` fournies par
-CoinGecko. Si au moins l'un atteint `+10 %`, une alerte verte est créée ou mise
-à jour dans `mog-post` (`1163364187796426776`). Si au moins l'un atteint
-`-10 %`, une alerte rouge distincte est créée ou mise à jour. Chaque alerte ne
+CoinGecko. Si au moins l'un atteint `+10 %`, une alerte verte est publiée dans
+`mog-post` (`1163364187796426776`). Si au moins l'un atteint
+`-10 %`, une alerte rouge distincte est publiée. À chaque actualisation d'une
+alerte active, le bot publie un nouveau message puis supprime l'ancien pour
+faire remonter l'alerte en bas du salon. Chaque alerte ne
 nomme et n'affiche que les actifs qui ont franchi son seuil ; si les deux
 franchissent le même seuil, elle affiche les deux et leurs pourcentages/prix.
 Les deux directions peuvent déclencher lors de la même exécution. Les
 pourcentages affichés sont plafonnés à `+300 %` et `-300 %`. Quand un actif
 repasse sous le seuil, il disparaît de la prochaine mise à jour si un autre
 actif reste au-dessus ; si aucun ne le franchit, le message est laissé tel
-quel. `@everyone` ne notifie qu'à la création initiale de chaque alerte, pas
-aux éditions suivantes. Ce message est un signal automatique et ne constitue
-pas un conseil financier.
+quel. `@everyone` ne notifie qu'aux paliers franchis de 10 % en 10 % (±10,
+±20, …, ±300), sans reping à chaque actualisation dans un même palier. Le
+dernier palier notifié est conservé dans le pied de l'embed pour éviter les
+doublons malgré le remplacement du message. Ce message est un signal automatique
+et ne constitue pas un conseil financier.
 
 Un cronjob dédié peut lancer le workflow avec `snapshot_only = true` toutes les
 4 heures. Dans ce mode, le bot publie une nouvelle embed ponctuelle dans
@@ -63,8 +67,8 @@ dépôt public et ne dépend pas de ton PC. Les horaires GitHub peuvent toutefoi
 Le workflow est autonome : il utilise le script `src/update_once.py`, qui ne
 requiert ni Python ni Discord ouverts sur ton ordinateur. Le token reste dans le
 secret GitHub `DISCORD_BOT_TOKEN` et n'est jamais écrit dans le dépôt. Le job
-met à jour le prix et, si nécessaire, édite le message d'alerte existant au lieu
-d'en publier plusieurs.
+met à jour le prix et remplace chaque alerte active par un nouveau message,
+puis supprime le message d'alerte précédent.
 
 Pour l'utiliser :
 
@@ -83,15 +87,14 @@ variation réelle de 10 %, lance le workflow manuellement avec l'option
 `test_alerts = both_once`. Il envoie une seule alerte verte et une seule alerte
 rouge, puis le fonctionnement planifié reste inchangé.
 
-Pour vérifier les éditions dans les mêmes messages sur quatre minutes, lance le
+Pour vérifier les remplacements de messages sur quatre minutes, lance le
 workflow avec `test_alerts = progression_4min`. Il simule `+10, +25, +100,
 +200, +300 %` et les mêmes valeurs négatives. Les messages portent la mention
 `[TEST FICTIF 4 MIN]`, affichent des prix XTM fictifs cohérents avec le taux
-(une baisse simulée ne peut pas faire descendre un prix sous zéro), et ne
-notifient `@everyone` qu'à leur première création. Les éditions suivantes ne
-renvoient pas de ping. L'option `verify_test` relit ensuite les deux messages
-pour confirmer qu'il n'y en a qu'un par couleur, avec la mention active et le
-prix fictif final attendu.
+(une baisse simulée ne peut pas faire descendre un prix sous zéro). `@everyone`
+est notifié aux paliers de 10 % atteints, sans ping à chaque minute. L'option
+`verify_test` relit ensuite les deux messages finaux pour confirmer qu'il n'y en
+a qu'un par couleur, avec le palier de notification et le prix fictif final attendus.
 
 Pour tester un snapshot, lance le workflow avec `snapshot_only = true`. Le
 cronjob de quatre heures utilise cette option et publie dans `mog-post` sans

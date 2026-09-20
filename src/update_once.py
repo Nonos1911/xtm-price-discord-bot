@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -20,6 +22,8 @@ ALERT_CHANNEL_ID = os.getenv("ALERT_CHANNEL_ID", "1163364187796426776")
 ALERT_THRESHOLD_PERCENT = float(os.getenv("ALERT_THRESHOLD_PERCENT", "10"))
 PRICE_EMBED_TITLE = "💱 Prix XTM / wXTM"
 ALERT_PREFIX = "Alert "
+ALERT_MILESTONE_FOOTER = "Palier @everyone notifié : "
+ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)([+-])(\d+(?:\.\d+)?)%")
 COINS = [("minotari", "XTM", "MEXC"), ("wrapped-minotari", "wXTM", "Gate")]
 
 
@@ -190,7 +194,14 @@ def publish_snapshot(embed: dict[str, Any]) -> str:
     return f"snapshot {created['id']} publié dans mog-post"
 
 
-def build_alert_embed(text: str, color: int, quotes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def build_alert_embed(
+    text: str,
+    color: int,
+    quotes: list[dict[str, Any]] | None = None,
+    *,
+    notified_milestone: int | None = None,
+    upward: bool = True,
+) -> dict[str, Any]:
     embed = {
         "title": text,
         "description": text,
@@ -209,6 +220,9 @@ def build_alert_embed(text: str, color: int, quotes: list[dict[str, Any]] | None
             {"name": quote["label"], "value": price_text(quote), "inline": True}
             for quote in alert_quotes
         ]
+    if notified_milestone is not None:
+        sign = "+" if upward else "-"
+        embed["footer"] = {"text": f"{ALERT_MILESTONE_FOOTER}{sign}{notified_milestone}%"}
     return embed
 
 
@@ -259,6 +273,36 @@ def _is_alert_title(title: str, *, upward: bool, test_label: str | None) -> bool
     return title.startswith(ALERT_PREFIX) and ("+" in title if upward else "-" in title)
 
 
+def alert_milestone(quotes: list[dict[str, Any]]) -> int:
+    """Return the highest 10%-step reached, capped to the displayed 300% range."""
+    changes = [abs(float(quote["change"])) for quote in quotes if quote.get("change") is not None]
+    if not changes:
+        return 0
+    magnitude = min(300.0, max(changes))
+    return int(math.floor((magnitude + 1e-9) / 10.0) * 10)
+
+
+def _message_notified_milestone(message: dict[str, Any], *, upward: bool) -> int:
+    sign = "+" if upward else "-"
+    for embed in message.get("embeds", []):
+        footer_text = str(embed.get("footer", {}).get("text", ""))
+        marker = re.search(r"Palier @everyone notifié : ([+-])(\d+)%", footer_text)
+        if marker and marker.group(1) == sign:
+            return int(marker.group(2))
+
+    # Older alerts do not have our milestone footer; infer the last pinged step
+    # from their percentages only if that message actually sent @everyone.
+    if not message.get("mention_everyone"):
+        return 0
+    values = [
+        float(match.group(2))
+        for embed in message.get("embeds", [])
+        for match in ALERT_PERCENT_RE.finditer(str(embed.get("title", "")))
+        if match.group(1) == sign
+    ]
+    return alert_milestone([{"change": value} for value in values])
+
+
 def upsert_alert(
     text: str,
     color: int,
@@ -268,14 +312,12 @@ def upsert_alert(
     test_label: str | None = None,
     notify_everyone: bool = True,
 ) -> str:
-    """Create an alert once, then edit that same bot-authored message on later runs."""
+    """Publish a fresh alert each run, removing older copies and pinging at 10% steps."""
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN est absent")
     headers = {"Authorization": f"Bot {token}"}
     display_text = f"{test_label} {text}" if test_label else text
-    content = f"@everyone {display_text}" if notify_everyone else display_text
-    payload: dict[str, Any] = {"content": content, "embeds": [build_alert_embed(display_text, color, quotes)]}
     bot = api_json(f"{DISCORD_BASE}/users/@me", headers=headers)
     messages = api_json(
         f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages?limit=100",
@@ -291,28 +333,42 @@ def upsert_alert(
         )
     ]
 
-    if matching:
-        current = matching[0]  # Discord returns channel history newest-first.
-        # Add the @everyone ping only if this message has never notified it;
-        # subsequent edits update the same message without pinging again.
-        should_notify = notify_everyone and not current.get("mention_everyone", False)
-        payload["allowed_mentions"] = {"parse": ["everyone"]} if should_notify else {"parse": []}
-        updated = api_json(
-            f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages/{current['id']}",
-            headers=headers,
-            method="PATCH",
-            body=payload,
-        )
-        return f"alerte {text} mise à jour dans le message {updated['id']}"
-
-    payload["allowed_mentions"] = {"parse": ["everyone"]} if notify_everyone else {"parse": []}
+    previous_milestone = max(
+        (_message_notified_milestone(message, upward=upward) for message in matching),
+        default=0,
+    )
+    current_milestone = alert_milestone(quotes)
+    should_notify = notify_everyone and current_milestone > previous_milestone
+    stored_milestone = max(previous_milestone, current_milestone) if notify_everyone else None
+    content = f"@everyone {display_text}" if should_notify else display_text
+    payload: dict[str, Any] = {
+        "content": content,
+        "embeds": [build_alert_embed(
+            display_text,
+            color,
+            quotes,
+            notified_milestone=stored_milestone,
+            upward=upward,
+        )],
+        "allowed_mentions": {"parse": ["everyone"]} if should_notify else {"parse": []},
+    }
     created = api_json(
         f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages",
         headers=headers,
         method="POST",
         body=payload,
     )
-    return f"alerte {text} créée dans le message {created['id']}"
+    removed = 0
+    for old_message in matching:
+        api_json(
+            f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages/{old_message['id']}",
+            headers=headers,
+            method="DELETE",
+        )
+        removed += 1
+    suffix = f"; {removed} ancienne(s) alerte(s) supprimée(s)" if removed else ""
+    ping = f"; @everyone palier {('+' if upward else '-')}{current_milestone}%" if should_notify else ""
+    return f"nouveau message d'alerte {created['id']} publié{suffix}{ping}"
 
 
 def run_fake_alert_progression() -> None:
