@@ -558,6 +558,100 @@ def test_test_alert_label_is_separate_from_live_alert(monkeypatch):
     assert calls[2][2]["allowed_mentions"] == {"parse": []}
 
 
+def test_test_alert_can_show_color_and_delta_after_short_label():
+    positive = update_once.build_alert_embed(
+        "Alerte XTM +12% | wXTM +14%",
+        5763719,
+        [
+            {"label": "XTM", "price": 0.00112, "change": 12.0, "market": "MEXC", "error": None},
+            {"label": "wXTM", "price": 0.00228, "change": 14.0, "market": "Uniswap", "error": None},
+        ],
+        previous_changes={"XTM": 0.0, "wXTM": 0.0},
+        test_label="[test]",
+        show_trend_for_test=True,
+    )
+    negative = update_once.build_alert_embed(
+        "Alerte XTM -12% | wXTM -14%  GO BUY",
+        15158332,
+        [
+            {"label": "XTM", "price": 0.00088, "change": -12.0, "market": "MEXC", "error": None},
+            {"label": "wXTM", "price": 0.00172, "change": -14.0, "market": "Uniswap", "error": None},
+        ],
+        previous_changes={"XTM": 0.0, "wXTM": 0.0},
+        upward=False,
+        test_label="[test]",
+        show_trend_for_test=True,
+    )
+
+    assert positive["title"].startswith("[test] 🟢 +")
+    assert "Alerte XTM +12% | wXTM +14%" in positive["title"]
+    assert negative["title"].startswith("[test] 🔴 -")
+    assert "Alerte XTM -12% | wXTM -14%  GO BUY" in negative["title"]
+
+
+def test_three_minute_color_progression_keeps_both_assets_beyond_threshold(monkeypatch):
+    alerts = []
+    pauses = []
+    removed = []
+
+    def fake_upsert(text, color, quotes, **kwargs):
+        alerts.append((text, color, [quote["change"] for quote in quotes], kwargs))
+        return "test-message"
+
+    monkeypatch.setattr(update_once, "upsert_alert", fake_upsert)
+    monkeypatch.setattr(update_once, "remove_obsolete_test_alert", lambda: removed.append(True) or 1)
+    monkeypatch.setattr(update_once.time, "sleep", pauses.append)
+    update_once.run_color_badge_progression_3min()
+
+    assert removed == [True]
+    assert len(alerts) == 8
+    assert [alert[1] for alert in alerts] == [5763719, 15158332] * 4
+    assert all(alert[3]["test_label"] == "[test]" for alert in alerts)
+    assert all(alert[3]["notify_everyone"] is False for alert in alerts)
+    assert all(alert[3]["show_trend_for_test"] is True for alert in alerts)
+    assert all(len(changes) == 2 for _, _, changes, _ in alerts)
+    assert all(changes[0] >= 12 and changes[1] >= 14 for _, color, changes, _ in alerts if color == 5763719)
+    assert all(changes[0] <= -12 and changes[1] <= -14 for _, color, changes, _ in alerts if color == 15158332)
+    assert pauses == [60, 60, 60]
+
+
+def test_obsolete_timestamped_test_alert_cleanup_only_removes_that_test(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+    messages = [
+        {
+            "id": "old-test",
+            "author": {"id": "bot-id"},
+            "embeds": [{"title": f"{update_once.OBSOLETE_TEST_LABEL} Alerte XTM +10.8%"}],
+        },
+        {
+            "id": "production",
+            "author": {"id": "bot-id"},
+            "embeds": [{"title": "🟢 + 0.20% — Alerte wXTM +17%"}],
+        },
+        {
+            "id": "other-author",
+            "author": {"id": "someone-else"},
+            "embeds": [{"title": f"{update_once.OBSOLETE_TEST_LABEL} Alerte XTM +10.8%"}],
+        },
+    ]
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method))
+        if url.endswith("/users/@me"):
+            return {"id": "bot-id"}
+        if method == "GET":
+            return messages
+        if method == "DELETE":
+            return None
+        raise AssertionError(f"Unexpected API call: {method} {url}")
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    assert update_once.remove_obsolete_test_alert() == 1
+    deletes = [url for url, method in calls if method == "DELETE"]
+    assert deletes == [f"{update_once.DISCORD_BASE}/channels/{update_once.ALERT_CHANNEL_ID}/messages/old-test"]
+
+
 def test_fake_four_minute_progression_uses_one_green_and_red_box(monkeypatch):
     alerts = []
     pauses = []

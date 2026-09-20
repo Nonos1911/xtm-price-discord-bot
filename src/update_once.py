@@ -22,6 +22,7 @@ DISCORD_BASE = "https://discord.com/api/v10"
 CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID", "1370700962695610430")
 ALERT_CHANNEL_ID = os.getenv("ALERT_CHANNEL_ID", "1163364187796426776")
 ALERT_THRESHOLD_PERCENT = float(os.getenv("ALERT_THRESHOLD_PERCENT", "10"))
+OBSOLETE_TEST_LABEL = "[TEST SIMULATION 2026-09-20 12:20:17 UTC]"
 PRICE_EMBED_TITLE = "💱 Prix XTM / wXTM"
 ALERT_PREFIX = "Alerte "
 LEGACY_ALERT_PREFIX = "Alert "
@@ -359,6 +360,8 @@ def build_alert_embed(
     upward: bool = True,
     previous_changes: dict[str, float] | None = None,
     previous_alert_changes: dict[str, float] | None = None,
+    test_label: str | None = None,
+    show_trend_for_test: bool = False,
 ) -> dict[str, Any]:
     alert_quotes = []
     if quotes is not None:
@@ -379,12 +382,18 @@ def build_alert_embed(
     display_title = text
     if not text.startswith("["):
         if deltas:
-            display_title = format_alert_delta_title(
+            trend_title = format_alert_delta_title(
                 text, deltas, asset_count=len(current_display_changes)
             )
         elif previous_changes is not None or previous_alert_changes:
             baseline = previous_changes or previous_alert_changes or {}
-            display_title = f"{format_trend_prefix(alert_trend_sign(quotes or [], baseline))} — {text}"
+            trend_title = f"{format_trend_prefix(alert_trend_sign(quotes or [], baseline))} — {text}"
+        else:
+            trend_title = text
+        if test_label is None or show_trend_for_test:
+            display_title = trend_title
+    if test_label:
+        display_title = f"{test_label} {display_title}"
     embed = {
         "title": display_title,
         "color": color,
@@ -499,13 +508,13 @@ def upsert_alert(
     test_label: str | None = None,
     notify_everyone: bool = True,
     previous_changes: dict[str, float] | None = None,
+    show_trend_for_test: bool = False,
 ) -> str:
     """Publish a fresh alert each run, removing older copies and pinging at 10% steps."""
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN est absent")
     headers = {"Authorization": f"Bot {token}"}
-    display_text = f"{test_label} {text}" if test_label else text
     bot = api_json(f"{DISCORD_BASE}/users/@me", headers=headers)
     messages = api_json(
         f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages?limit=100",
@@ -534,13 +543,15 @@ def upsert_alert(
     stored_milestone = max(previous_milestone, current_milestone) if notify_everyone else None
     payload: dict[str, Any] = {
         "embeds": [build_alert_embed(
-            display_text,
+            text,
             color,
             quotes,
             notified_milestone=stored_milestone,
             upward=upward,
             previous_changes=previous_changes,
             previous_alert_changes=previous_alert_changes,
+            test_label=test_label,
+            show_trend_for_test=show_trend_for_test,
         )],
         "allowed_mentions": {"parse": ["everyone"]} if should_notify else {"parse": []},
     }
@@ -638,6 +649,96 @@ def run_fake_alert_progression() -> None:
             time.sleep(60)
 
 
+def remove_obsolete_test_alert() -> int:
+    """Remove only the prior one-off test message whose long label was replaced."""
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("DISCORD_BOT_TOKEN est absent")
+    headers = {"Authorization": f"Bot {token}"}
+    bot = api_json(f"{DISCORD_BASE}/users/@me", headers=headers)
+    messages = api_json(
+        f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages?limit=100",
+        headers=headers,
+    )
+    prefix = f"{OBSOLETE_TEST_LABEL} "
+    matching = [
+        message
+        for message in messages
+        if message.get("author", {}).get("id") == bot.get("id")
+        and any(
+            str(embed.get("title", "")).startswith(prefix)
+            for embed in message.get("embeds", [])
+        )
+    ]
+    for message in matching:
+        api_json(
+            f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages/{message['id']}",
+            headers=headers,
+            method="DELETE",
+        )
+    return len(matching)
+
+
+def run_color_badge_progression_3min() -> None:
+    """Refresh paired positive/negative test alerts for three full minutes."""
+    removed = remove_obsolete_test_alert()
+    print(f"Ancienne alerte de test renommée supprimée: {removed}", flush=True)
+    progressions = [(12.0, 14.0), (15.0, 17.0), (18.0, 20.0), (22.0, 24.0)]
+    previous_by_direction = {
+        True: {"XTM": 0.0, "wXTM": 0.0},
+        False: {"XTM": 0.0, "wXTM": 0.0},
+    }
+    for minute, (xtm_change, wxtm_change) in enumerate(progressions):
+        for upward, color in ((True, 5763719), (False, 15158332)):
+            sign = 1 if upward else -1
+            quotes = [
+                {
+                    "label": "XTM",
+                    "price": 0.001 * (1 + sign * xtm_change / 100),
+                    "change": sign * xtm_change,
+                    "market": "MEXC (simulation)",
+                    "error": None,
+                },
+                {
+                    "label": "wXTM",
+                    "price": 0.002 * (1 + sign * wxtm_change / 100),
+                    "currency": "USD",
+                    "change": sign * wxtm_change,
+                    "market": "Uniswap V4 (Ethereum, simulation)",
+                    "error": None,
+                },
+            ]
+            affected = alert_quotes_for_direction(quotes, upward=upward)
+            text = format_group_alert_text(affected, upward=upward)
+            preview = build_alert_embed(
+                text,
+                color,
+                affected,
+                upward=upward,
+                previous_changes=previous_by_direction[upward],
+                test_label="[test]",
+                show_trend_for_test=True,
+            )
+            print(f"Minute {minute}: {preview['title']}", flush=True)
+            print(upsert_alert(
+                text,
+                color,
+                affected,
+                upward=upward,
+                test_label="[test]",
+                notify_everyone=False,
+                previous_changes=previous_by_direction[upward],
+                show_trend_for_test=True,
+            ), flush=True)
+            previous_by_direction[upward] = {
+                "XTM": sign * xtm_change,
+                "wXTM": sign * wxtm_change,
+            }
+        if minute < len(progressions) - 1:
+            print("Attente de 60 secondes avant la prochaine actualisation simulée.", flush=True)
+            time.sleep(60)
+
+
 def run_positive_pair_test() -> str:
     """Post one tagged, green XTM+wXTM simulation without touching live alerts."""
     quotes = [
@@ -730,6 +831,9 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
     if os.getenv("TEST_ALERTS", "").strip().lower() == "verify_test":
         verify_fake_alert_progression()
+        return 0
+    if os.getenv("TEST_ALERTS", "").strip().lower() == "progression_3min":
+        run_color_badge_progression_3min()
         return 0
     if os.getenv("TEST_ALERTS", "").strip().lower() == "progression_4min":
         print("Test fictif sur quatre minutes : alertes marquées TEST, sans @everyone.", flush=True)

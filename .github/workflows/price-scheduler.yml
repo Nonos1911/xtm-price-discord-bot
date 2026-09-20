@@ -4,13 +4,14 @@ name: Prix XTM planifiés
   workflow_dispatch:
     inputs:
       test_alerts:
-        description: "Test ponctuel des deux alertes dans mog-post"
+        description: "Test des alertes dans mog-post, dont une progression visuelle de 3 minutes"
         required: false
         type: choice
         options:
           - none
           - positive_pair_once
           - both_once
+          - progression_3min
           - progression_4min
           - verify_test
         default: none
