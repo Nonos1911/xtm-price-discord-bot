@@ -78,12 +78,12 @@ def test_change_since_previous_is_consistent_for_both_assets_and_directions():
     assert is_alert_title(title, upward=True)
     assert format_alert_delta_title(
         "Alert wXTM+18.7%", {"wXTM": -0.001}, asset_count=1
-    ) == "🟡 ~0.00% — Alert wXTM+18.7%"
+    ) == "🟡 ~ 0.00% — Alert wXTM+18.7%"
     assert format_alert_delta_title(
         "Alert XTM+12% | wXTM+18%",
         {"XTM": 0.25, "wXTM": -0.001},
         asset_count=2,
-    ) == "🟢 XTM +0.25% | wXTM ~0.00% — Alert XTM+12% | wXTM+18%"
+    ) == "🟢 XTM +0.25% | wXTM ~ 0.00% — Alert XTM+12% | wXTM+18%"
 
 
 def test_worker_alerts_include_only_affected_tokens_and_keep_one_direction_key():

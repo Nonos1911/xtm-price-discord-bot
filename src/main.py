@@ -209,13 +209,13 @@ def format_alert_delta_title(
         for label, delta in deltas.items()
     }
     if all(delta == 0 for delta in rounded_deltas.values()):
-        return f"🟡 ~0.00% — {text}"
+        return f"🟡 ~ 0.00% — {text}"
     dominant_delta = max(rounded_deltas.values(), key=abs)
     marker = "🟢" if dominant_delta > 0 else "🔴" if dominant_delta < 0 else "🟡"
     parts = []
     for label, delta in rounded_deltas.items():
         if delta == 0:
-            value = "~0.00%"
+            value = "~ 0.00%"
             parts.append(f"{label} {value}" if asset_count > 1 else value)
             continue
         sign = "+" if delta > 0 else "-" if delta < 0 else "~"
