@@ -11,6 +11,7 @@ name: Prix XTM planifiés
           - none
           - both_once
           - progression_4min
+          - verify_test
         default: none
       snapshot_only:
         description: "Publier un snapshot ponctuel dans mog-post"

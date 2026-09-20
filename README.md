@@ -85,7 +85,9 @@ workflow avec `test_alerts = progression_4min`. Il simule `+10, +25, +100,
 `[TEST FICTIF 4 MIN]`, affichent des prix XTM fictifs cohérents avec le taux
 (une baisse simulée ne peut pas faire descendre un prix sous zéro), et ne
 notifient `@everyone` qu'à leur première création. Les éditions suivantes ne
-renvoient pas de ping.
+renvoient pas de ping. L'option `verify_test` relit ensuite les deux messages
+pour confirmer qu'il n'y en a qu'un par couleur, avec la mention active et le
+prix fictif final attendu.
 
 Pour tester un snapshot, lance le workflow avec `snapshot_only = true`. Le
 cronjob de quatre heures utilise cette option et publie dans `mog-post` sans

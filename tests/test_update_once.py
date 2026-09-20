@@ -198,3 +198,37 @@ def test_fake_four_minute_progression_uses_one_green_and_red_box(monkeypatch):
     assert [round(alert[3], 8) for alert in alerts[::2]] == [0.0011, 0.00125, 0.002, 0.003, 0.004]
     assert [round(alert[3], 8) for alert in alerts[1::2]] == [0.0009, 0.00075, 0.0, 0.0, 0.0]
     assert pauses == [60, 60, 60, 60]
+
+
+def test_verify_fake_progression_checks_one_mentioned_box_per_direction(monkeypatch, capsys):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    messages = [
+        {
+            "id": "green-id",
+            "author": {"id": "bot-id"},
+            "content": "@everyone [TEST FICTIF 4 MIN] Alert XTM+300%",
+            "mention_everyone": True,
+            "embeds": [{"title": "[TEST FICTIF 4 MIN] Alert XTM+300%", "color": 5763719,
+                        "fields": [{"name": "XTM", "value": "**0.004 USDT**"}]}],
+        },
+        {
+            "id": "red-id",
+            "author": {"id": "bot-id"},
+            "content": "@everyone [TEST FICTIF 4 MIN] Alert XTM-300%  GO BUY",
+            "mention_everyone": True,
+            "embeds": [{"title": "[TEST FICTIF 4 MIN] Alert XTM-300%  GO BUY", "color": 15158332,
+                        "fields": [{"name": "XTM", "value": "**0 USDT**"}]}],
+        },
+    ]
+    calls = []
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method))
+        return {"id": "bot-id"} if url.endswith("/users/@me") else messages
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    update_once.verify_fake_alert_progression()
+
+    assert len(calls) == 2
+    assert all(method == "GET" for _, method in calls)
+    assert "mention_everyone=True" in capsys.readouterr().out

@@ -322,9 +322,50 @@ def run_fake_alert_progression() -> None:
             time.sleep(60)
 
 
+def verify_fake_alert_progression() -> None:
+    """Read back the final fake test alerts and assert one correct box per direction."""
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("DISCORD_BOT_TOKEN est absent")
+    headers = {"Authorization": f"Bot {token}"}
+    bot = api_json(f"{DISCORD_BASE}/users/@me", headers=headers)
+    messages = api_json(
+        f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages?limit=100",
+        headers=headers,
+    )
+    expected = [
+        ("Alert XTM+300%", 5763719, "0.004 USDT"),
+        ("Alert XTM-300%  GO BUY", 15158332, "0 USDT"),
+    ]
+    for expected_title, expected_color, expected_price in expected:
+        title = f"[TEST FICTIF 4 MIN] {expected_title}"
+        found = [
+            message
+            for message in messages
+            if message.get("author", {}).get("id") == bot.get("id")
+            and any(embed.get("title") == title for embed in message.get("embeds", []))
+        ]
+        if len(found) != 1:
+            raise RuntimeError(f"Résultat attendu une seule fois dans mog-post : {title} (trouvé {len(found)})")
+        message = found[0]
+        embed = next(embed for embed in message.get("embeds", []) if embed.get("title") == title)
+        xtm_field = next(field for field in embed.get("fields", []) if field.get("name") == "XTM")
+        if not message.get("mention_everyone"):
+            raise RuntimeError(f"La mention @everyone n'est pas active sur {title}")
+        if embed.get("color") != expected_color or expected_price not in xtm_field.get("value", ""):
+            raise RuntimeError(f"Le prix ou la couleur finale ne correspond pas pour {title}")
+        print(
+            f"Vérifié: id={message['id']}; {message.get('content')}; "
+            f"mention_everyone={message.get('mention_everyone')}; XTM={xtm_field['value']}"
+        )
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+    if os.getenv("TEST_ALERTS", "").strip().lower() == "verify_test":
+        verify_fake_alert_progression()
+        return 0
     if os.getenv("TEST_ALERTS", "").strip().lower() == "progression_4min":
         print("Test fictif sur quatre minutes : alertes marquées TEST, sans @everyone.", flush=True)
         run_fake_alert_progression()
