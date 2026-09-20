@@ -210,37 +210,40 @@ def calculate_alert_deltas(
     return deltas
 
 
-def format_alert_delta_title(
-    text: str, deltas: dict[str, float], *, asset_count: int
+def format_alert_delta_lines(
+    changes: dict[str, float], deltas: dict[str, float]
 ) -> str:
-    """Put the dominant signed delta immediately after the color marker."""
-    if not deltas:
-        return text
-    rounded_deltas = {
-        label: (0.0 if round(delta, 2) == 0 else round(delta, 2))
-        for label, delta in deltas.items()
-    }
-    if all(delta == 0 for delta in rounded_deltas.values()):
-        return f"🟡 ~ 0.00% — {text}"
-    dominant_label, dominant_delta = max(
-        rounded_deltas.items(), key=lambda item: abs(item[1])
-    )
-    marker = "🟢" if dominant_delta > 0 else "🔴" if dominant_delta < 0 else "🟡"
-    dominant_sign = "+" if dominant_delta > 0 else "-"
-    dominant_text = f"{dominant_sign} {abs(dominant_delta):.2f}%"
-    if asset_count > 1:
-        dominant_text += f" ({dominant_label})"
-    parts = [dominant_text]
-    for label, delta in rounded_deltas.items():
-        if label == dominant_label:
+    """Render independent color/delta rows so XTM cannot inherit wXTM's trend."""
+    lines = []
+    for label in ("XTM", "wXTM"):
+        if label not in changes:
             continue
-        if delta == 0:
-            value = "~ 0.00%"
+        delta = deltas.get(label)
+        rounded = None if delta is None else (0.0 if round(delta, 2) == 0 else round(delta, 2))
+        if rounded is None or rounded == 0:
+            marker, value = "🟡", "~ 0.00%"
+        elif rounded > 0:
+            marker, value = "🟢", f"+ {rounded:.2f}%"
         else:
-            sign = "+" if delta > 0 else "-"
-            value = f"{sign} {abs(delta):.2f}%"
-        parts.append(f"{label} {value}")
-    return f"{marker} {' | '.join(parts)} — {text}"
+            marker, value = "🔴", f"- {abs(rounded):.2f}%"
+        lines.append(f"{marker} {value} — **{label}**")
+    return "\n".join(lines)
+
+
+def format_milestone_footer(notified_milestone: int, *, upward: bool) -> str:
+    sign = "+" if upward else "-"
+    future = list(range(notified_milestone + 10, 301, 10))
+    upcoming = future[:3]
+    if upcoming:
+        next_text = " / ".join(f"{sign}{milestone}%" for milestone in upcoming)
+        if len(future) > len(upcoming):
+            next_text += " …"
+    else:
+        next_text = "aucun (limite 300%)"
+    return (
+        f"{ALERT_MILESTONE_FOOTER}{sign}{notified_milestone}%\n"
+        f"Prochains paliers @everyone : {next_text}"
+    )
 
 
 def variation_trend_sign(current: float, previous: float | None) -> str:
@@ -380,34 +383,26 @@ def build_alert_embed(
         current_display_changes, previous_alert_changes or {}, previous_changes
     )
     display_title = text
-    if not text.startswith("["):
-        if deltas:
-            trend_title = format_alert_delta_title(
-                text, deltas, asset_count=len(current_display_changes)
-            )
-        elif previous_changes is not None or previous_alert_changes:
-            baseline = previous_changes or previous_alert_changes or {}
-            trend_title = f"{format_trend_prefix(alert_trend_sign(quotes or [], baseline))} — {text}"
-        else:
-            trend_title = text
-        if test_label is None or show_trend_for_test:
-            display_title = trend_title
+    description = ""
+    if test_label is None or show_trend_for_test:
+        description = format_alert_delta_lines(current_display_changes, deltas)
     if test_label:
         display_title = f"{test_label} {display_title}"
     embed = {
         "title": display_title,
-        "color": color,
+        "color": 2829617,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    if description:
+        embed["description"] = description
     if quotes is not None:
         fields = []
         for quote in alert_quotes:
             value = price_text(quote)
-            fields.append({"name": quote["label"], "value": value, "inline": True})
+            fields.append({"name": quote["label"], "value": value, "inline": False})
         embed["fields"] = fields
     if notified_milestone is not None:
-        sign = "+" if upward else "-"
-        embed["footer"] = {"text": f"{ALERT_MILESTONE_FOOTER}{sign}{notified_milestone}%"}
+        embed["footer"] = {"text": format_milestone_footer(notified_milestone, upward=upward)}
     return embed
 
 
@@ -679,6 +674,33 @@ def remove_obsolete_test_alert() -> int:
     return len(matching)
 
 
+def remove_test_alerts(test_label: str) -> int:
+    """Clean only this bot's test-labeled alerts before a deterministic test run."""
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("DISCORD_BOT_TOKEN est absent")
+    headers = {"Authorization": f"Bot {token}"}
+    bot = api_json(f"{DISCORD_BASE}/users/@me", headers=headers)
+    messages = api_json(
+        f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages?limit=100",
+        headers=headers,
+    )
+    prefix = f"{test_label} "
+    matching = [
+        message
+        for message in messages
+        if message.get("author", {}).get("id") == bot.get("id")
+        and any(str(embed.get("title", "")).startswith(prefix) for embed in message.get("embeds", []))
+    ]
+    for message in matching:
+        api_json(
+            f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages/{message['id']}",
+            headers=headers,
+            method="DELETE",
+        )
+    return len(matching)
+
+
 def run_color_badge_progression_3min() -> None:
     """Refresh paired positive/negative test alerts for three full minutes."""
     removed = remove_obsolete_test_alert()
@@ -719,7 +741,10 @@ def run_color_badge_progression_3min() -> None:
                 test_label="[test]",
                 show_trend_for_test=True,
             )
-            print(f"Minute {minute}: {preview['title']}", flush=True)
+            print(
+                f"Minute {minute}: {preview['description']} — {preview['title']}",
+                flush=True,
+            )
             print(upsert_alert(
                 text,
                 color,
@@ -737,6 +762,56 @@ def run_color_badge_progression_3min() -> None:
         if minute < len(progressions) - 1:
             print("Attente de 60 secondes avant la prochaine actualisation simulée.", flush=True)
             time.sleep(60)
+
+
+def run_milestone_22_test() -> None:
+    """Ping at +10%, then verify a second @everyone at +20% / +22% market change."""
+    test_label = "[test]"
+    removed = remove_test_alerts(test_label)
+    print(f"Anciennes alertes {test_label} supprimées avant le test: {removed}", flush=True)
+    before = [
+        {"label": "XTM", "price": 0.00112, "change": 12.0, "market": "MEXC (simulation)", "error": None},
+        {"label": "wXTM", "price": 0.00228, "currency": "USD", "change": 14.0, "market": "Uniswap V4 (simulation)", "error": None},
+    ]
+    text_before = format_group_alert_text(alert_quotes_for_direction(before, upward=True), upward=True)
+    print("Simulation +10% : premier @everyone; les deux actifs restent au-dessus de +10%.", flush=True)
+    print(upsert_alert(
+        text_before,
+        5763719,
+        before,
+        upward=True,
+        test_label=test_label,
+        notify_everyone=True,
+        previous_changes={"XTM": 0.0, "wXTM": 0.0},
+        show_trend_for_test=True,
+    ), flush=True)
+
+    print("Attente de 20 secondes pour laisser apparaître le premier test dans Discord.", flush=True)
+    time.sleep(20)
+    after = [
+        {"label": "XTM", "price": 0.00122, "change": 22.0, "market": "MEXC (simulation)", "error": None},
+        {"label": "wXTM", "price": 0.00224, "currency": "USD", "change": 12.0, "market": "Uniswap V4 (simulation)", "error": None},
+    ]
+    text_after = format_group_alert_text(alert_quotes_for_direction(after, upward=True), upward=True)
+    preview = build_alert_embed(
+        text_after,
+        5763719,
+        after,
+        upward=True,
+        previous_alert_changes={"XTM": 12.0, "wXTM": 14.0},
+        test_label=test_label,
+        show_trend_for_test=True,
+    )
+    print(f"Simulation +22% : {preview['description']} — {preview['title']}", flush=True)
+    print(upsert_alert(
+        text_after,
+        5763719,
+        after,
+        upward=True,
+        test_label=test_label,
+        notify_everyone=True,
+        show_trend_for_test=True,
+    ), flush=True)
 
 
 def run_positive_pair_test() -> str:
@@ -834,6 +909,9 @@ def main() -> int:
         return 0
     if os.getenv("TEST_ALERTS", "").strip().lower() == "progression_3min":
         run_color_badge_progression_3min()
+        return 0
+    if os.getenv("TEST_ALERTS", "").strip().lower() == "milestone_22":
+        run_milestone_22_test()
         return 0
     if os.getenv("TEST_ALERTS", "").strip().lower() == "progression_4min":
         print("Test fictif sur quatre minutes : alertes marquées TEST, sans @everyone.", flush=True)

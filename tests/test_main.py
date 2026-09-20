@@ -16,7 +16,8 @@ from main import (
     calculate_alert_deltas,
     change_since_previous,
     extract_alert_changes,
-    format_alert_delta_title,
+    format_alert_delta_lines,
+    format_milestone_footer,
     extract_previous_price_changes,
     format_trend_prefix,
     format_change,
@@ -70,30 +71,25 @@ def test_change_since_previous_is_consistent_for_both_assets_and_directions():
         {"XTM": 12.75, "wXTM": 16.7},
         {"XTM": 12.55, "wXTM": 18.0},
     )
-    title = format_alert_delta_title(
-        "Alerte XTM +12.75% | wXTM +16.7%", deltas, asset_count=2
+    lines = format_alert_delta_lines(
+        {"XTM": 12.75, "wXTM": 16.7}, deltas
     )
-    assert title == "🔴 - 1.30% (wXTM) | XTM + 0.20% — Alerte XTM +12.75% | wXTM +16.7%"
-    assert is_alert_title(title, upward=True)
-    assert format_alert_delta_title(
-        "Alerte wXTM +18.7%", {"wXTM": -0.001}, asset_count=1
-    ) == "🟡 ~ 0.00% — Alerte wXTM +18.7%"
-    assert format_alert_delta_title(
-        "Alerte XTM +12% | wXTM +18%",
-        {"XTM": 0.25, "wXTM": -0.001},
-        asset_count=2,
-    ) == "🟢 + 0.25% (XTM) | wXTM ~ 0.00% — Alerte XTM +12% | wXTM +18%"
-    assert is_alert_title("Alert wXTM+16.67%", upward=True)
-
-
-def test_xtm_and_wxtm_delta_titles_have_identical_formatting():
-    for label in ("XTM", "wXTM"):
-        assert format_alert_delta_title(
-            f"Alerte {label} +10%", {label: 0.2}, asset_count=1
-        ) == f"🟢 + 0.20% — Alerte {label} +10%"
-        assert format_alert_delta_title(
-            f"Alerte {label} -10%  GO BUY", {label: -1.3}, asset_count=1
-        ) == f"🔴 - 1.30% — Alerte {label} -10%  GO BUY"
+    assert lines == "🟢 + 0.20% — **XTM**\n🔴 - 1.30% — **wXTM**"
+    assert is_alert_title("Alerte XTM +12.75% | wXTM +16.7%", upward=True)
+    assert format_alert_delta_lines({"wXTM": 18.7}, {"wXTM": -0.001}) == (
+        "🟡 ~ 0.00% — **wXTM**"
+    )
+    assert format_alert_delta_lines(
+        {"XTM": 12, "wXTM": 18}, {"XTM": 0.25, "wXTM": -0.001}
+    ) == "🟢 + 0.25% — **XTM**\n🟡 ~ 0.00% — **wXTM**"
+    assert format_milestone_footer(10, upward=True) == (
+        "Palier @everyone notifié : +10%\n"
+        "Prochains paliers @everyone : +20% / +30% / +40% …"
+    )
+    assert format_milestone_footer(20, upward=False) == (
+        "Palier @everyone notifié : -20%\n"
+        "Prochains paliers @everyone : -30% / -40% / -50% …"
+    )
 
 
 def test_worker_alerts_include_only_affected_tokens_and_keep_one_direction_key():

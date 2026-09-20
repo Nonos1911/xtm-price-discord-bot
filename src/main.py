@@ -201,37 +201,38 @@ def calculate_alert_deltas(
     return deltas
 
 
-def format_alert_delta_title(
-    text: str, deltas: dict[str, float], *, asset_count: int
-) -> str:
-    """Put the dominant signed delta immediately after the color marker."""
-    if not deltas:
-        return text
-    rounded_deltas = {
-        label: (0.0 if round(delta, 2) == 0 else round(delta, 2))
-        for label, delta in deltas.items()
-    }
-    if all(delta == 0 for delta in rounded_deltas.values()):
-        return f"🟡 ~ 0.00% — {text}"
-    dominant_label, dominant_delta = max(
-        rounded_deltas.items(), key=lambda item: abs(item[1])
-    )
-    marker = "🟢" if dominant_delta > 0 else "🔴" if dominant_delta < 0 else "🟡"
-    dominant_sign = "+" if dominant_delta > 0 else "-"
-    dominant_text = f"{dominant_sign} {abs(dominant_delta):.2f}%"
-    if asset_count > 1:
-        dominant_text += f" ({dominant_label})"
-    parts = [dominant_text]
-    for label, delta in rounded_deltas.items():
-        if label == dominant_label:
+def format_alert_delta_lines(changes: dict[str, float], deltas: dict[str, float]) -> str:
+    """Give XTM and wXTM independent color and movement rows."""
+    lines = []
+    for label in ("XTM", "wXTM"):
+        if label not in changes:
             continue
-        if delta == 0:
-            value = "~ 0.00%"
+        delta = deltas.get(label)
+        rounded = None if delta is None else (0.0 if round(delta, 2) == 0 else round(delta, 2))
+        if rounded is None or rounded == 0:
+            marker, value = "🟡", "~ 0.00%"
+        elif rounded > 0:
+            marker, value = "🟢", f"+ {rounded:.2f}%"
         else:
-            sign = "+" if delta > 0 else "-"
-            value = f"{sign} {abs(delta):.2f}%"
-        parts.append(f"{label} {value}")
-    return f"{marker} {' | '.join(parts)} — {text}"
+            marker, value = "🔴", f"- {abs(rounded):.2f}%"
+        lines.append(f"{marker} {value} — **{label}**")
+    return "\n".join(lines)
+
+
+def format_milestone_footer(notified_milestone: int, *, upward: bool) -> str:
+    sign = "+" if upward else "-"
+    future = list(range(notified_milestone + 10, 301, 10))
+    upcoming = future[:3]
+    if upcoming:
+        next_text = " / ".join(f"{sign}{milestone}%" for milestone in upcoming)
+        if len(future) > len(upcoming):
+            next_text += " …"
+    else:
+        next_text = "aucun (limite 300%)"
+    return (
+        f"{ALERT_MILESTONE_FOOTER}{sign}{notified_milestone}%\n"
+        f"Prochains paliers @everyone : {next_text}"
+    )
 
 
 def format_alert_text(change: float, *, upward: bool, threshold: float, label: str = "XTM") -> str:
@@ -528,7 +529,6 @@ class PriceBot(discord.Client):
                     existing_messages.append(message)
         previous_alert_changes = extract_alert_changes(existing_messages)
 
-        title = text
         current_display_changes = {}
         for quote in quotes:
             if quote.change_24h is None:
@@ -538,16 +538,10 @@ class PriceBot(discord.Client):
         deltas = calculate_alert_deltas(
             current_display_changes, previous_alert_changes, previous_changes
         )
-        if deltas:
-            title = format_alert_delta_title(
-                text, deltas, asset_count=len(current_display_changes)
-            )
-        elif previous_changes is not None or previous_alert_changes:
-            baseline = previous_changes or previous_alert_changes
-            title = f"{format_trend_prefix(alert_trend_sign(quotes, baseline))} — {text}"
         alert_embed = discord.Embed(
-            title=title,
-            colour=colour,
+            title=text,
+            description=format_alert_delta_lines(current_display_changes, deltas),
+            colour=discord.Colour(0x2B2D31),
             timestamp=datetime.now(timezone.utc),
         )
         for quote in quotes:
@@ -561,7 +555,7 @@ class PriceBot(discord.Client):
                 value = f"**{format_price(quote.price, quote.currency, label=quote.label)}**\n{format_change(display_change)}"
                 if quote.market:
                     value += f"\nMarché : {quote.market}"
-            alert_embed.add_field(name=quote.label, value=value, inline=True)
+            alert_embed.add_field(name=quote.label, value=value, inline=False)
 
         previous_milestone = max(
             (message_notified_milestone(message, upward=upward) for message in existing_messages),
@@ -571,7 +565,7 @@ class PriceBot(discord.Client):
         should_notify = current_milestone > previous_milestone
         stored_milestone = max(previous_milestone, current_milestone)
         sign = "+" if upward else "-"
-        alert_embed.set_footer(text=f"{ALERT_MILESTONE_FOOTER}{sign}{stored_milestone}%")
+        alert_embed.set_footer(text=format_milestone_footer(stored_milestone, upward=upward))
         content = "@everyone" if should_notify else None
         created = await channel.send(  # type: ignore[attr-defined]
             content=content,

@@ -25,13 +25,11 @@ alerte active, le bot publie un nouveau message puis supprime l'ancien pour
 faire remonter l'alerte en bas du salon. Chaque alerte ne
 nomme et n'affiche que les actifs qui ont franchi son seuil ; si les deux
 franchissent le même seuil, elle affiche les deux et leurs pourcentages/prix.
-Le titre de l'alerte commence par une pastille puis le signe et la variation
-entre deux alertes, par exemple `🟢 + 0.20%` ou `🔴 - 1.30%`. Si XTM et wXTM
-sont concernés, le mouvement dominant apparaît d'abord et l'autre actif suit.
-Une variation arrondie à zéro s'affiche comme `🟡 ~ 0.00%`. Ce format est
-identique pour XTM et wXTM.
-À côté du repère coloré, l'alerte affiche aussi l'écart entre la variation
-24 h actuelle et celle de l'alerte précédente, séparément pour les deux actifs.
+Sous le titre, l'alerte affiche une ligne par actif, avec sa propre pastille et
+son propre delta depuis l'alerte précédente : `🟢 + 0.20% — XTM` puis
+`🔴 - 1.30% — wXTM`, par exemple. Une variation arrondie à zéro s'affiche
+comme `🟡 ~ 0.00%`. Ainsi la couleur de XTM ne dépend jamais du mouvement de
+wXTM, et inversement.
 Le pourcentage d'alerte est séparé du nom de l'actif par une espace
 (`XTM +10%`, `wXTM -13.84%`).
 Les cours XTM et wXTM sont affichés avec exactement cinq chiffres après le
@@ -46,10 +44,13 @@ variation 24 h configurée est momentanément indisponible. `@everyone` ne
 notifie qu'aux paliers franchis de 10 % en 10 % (±10,
 ±20, …, ±300), sans reping à chaque actualisation dans un même palier. Le
 dernier palier notifié est conservé dans le pied de l'embed pour éviter les
-doublons malgré le remplacement du message. Ce message est un signal automatique
-et ne constitue pas un conseil financier.
-Le texte de l'alerte apparaît uniquement dans le titre blanc en gras de l'embed ;
-quand un palier ping @everyone, le contenu du message ne contient que cette mention.
+doublons malgré le remplacement du message. Le pied de l'embed indique aussi les
+trois prochains paliers `@everyone` à surveiller. Les variations entre alertes
+sont affichées dans deux lignes indépendantes, une par actif : la pastille XTM
+ne reprend jamais la couleur de wXTM (et inversement). Ce message est un signal
+automatique et ne constitue pas un conseil financier.
+Le titre contient les alertes XTM/wXTM ; quand un palier ping @everyone, le
+contenu du message ne contient que cette mention.
 
 Un cronjob dédié peut lancer le workflow avec `snapshot_only = true` toutes les
 4 heures. Dans ce mode, le bot publie une nouvelle embed ponctuelle dans
@@ -120,6 +121,12 @@ workflow avec `test_alerts = progression_4min`. Il simule `+10, +25, +100,
 est notifié aux paliers de 10 % atteints, sans ping à chaque minute. L'option
 `verify_test` relit ensuite les deux messages finaux pour confirmer qu'il n'y en
 a qu'un par couleur, avec le palier de notification et le prix fictif final attendus.
+
+Pour tester l'envoi du prochain `@everyone` au palier +20 % et les pastilles
+indépendantes, lance `test_alerts = milestone_22`. Le test publie XTM +12 % /
+wXTM +14 % avec un ping, attend 20 secondes, puis publie XTM +22 % / wXTM
++12 % avec un second ping. Il supprime seulement les anciennes alertes du bot
+préfixées `[test]` ; les alertes de production ne sont pas touchées.
 
 Pour tester un snapshot, lance le workflow avec `snapshot_only = true`. Le
 cronjob de quatre heures utilise cette option et publie dans `mog-post` sans

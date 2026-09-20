@@ -6,7 +6,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 import update_once
-from main import format_alert_delta_title as format_live_alert_delta_title
+from main import format_alert_delta_lines as format_live_alert_delta_lines
+from main import format_milestone_footer as format_live_milestone_footer
 from update_once import (
     alert_milestone,
     alert_changes_are_complete,
@@ -17,7 +18,8 @@ from update_once import (
     build_price_embed,
     extract_alert_changes,
     extract_previous_price_changes,
-    format_alert_delta_title,
+    format_alert_delta_lines,
+    format_milestone_footer,
     format_alert_text,
     format_group_alert_text,
     price_text,
@@ -139,7 +141,8 @@ def test_group_alert_names_only_affected_assets_and_can_handle_both():
     )
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
     assert embed["title"] == "Alerte XTM +10% | wXTM +17.19%"
-    assert "description" not in embed
+    assert embed["description"] == "🟡 ~ 0.00% — **XTM**\n🟡 ~ 0.00% — **wXTM**"
+    assert all(field["inline"] is False for field in embed["fields"])
 
 
 def test_alert_embed_shows_change_since_previous_for_each_asset():
@@ -154,22 +157,22 @@ def test_alert_embed_shows_change_since_previous_for_each_asset():
         previous_alert_changes={"XTM": 12.5, "wXTM": 18.0},
     )
 
-    assert embed["title"] == "🟢 + 0.25% (XTM) | wXTM - 0.25% — Alerte XTM +12.75% | wXTM +17.75%"
+    assert embed["title"] == "Alerte XTM +12.75% | wXTM +17.75%"
+    assert embed["description"] == "🟢 + 0.25% — **XTM**\n🔴 - 0.25% — **wXTM**"
     assert all("Entre alertes" not in field["value"] for field in embed["fields"])
 
 
 def test_live_bot_and_scheduler_format_xtm_and_wxtm_alerts_identically():
-    cases = [
-        ("Alerte XTM +10%", {"XTM": 0.2}, 1),
-        ("Alerte XTM -10%  GO BUY", {"XTM": -1.3}, 1),
-        ("Alerte wXTM +10%", {"wXTM": 0.2}, 1),
-        ("Alerte wXTM -10%  GO BUY", {"wXTM": -1.3}, 1),
-        ("Alerte XTM +10% | wXTM +17.19%", {"XTM": 0.2, "wXTM": -1.3}, 2),
-    ]
-    for text, deltas, asset_count in cases:
-        scheduled = format_alert_delta_title(text, deltas, asset_count=asset_count)
-        live = format_live_alert_delta_title(text, deltas, asset_count=asset_count)
-        assert scheduled == live
+    changes = {"XTM": 22.0, "wXTM": 12.0}
+    deltas = {"XTM": 10.0, "wXTM": -2.0}
+    assert format_alert_delta_lines(changes, deltas) == format_live_alert_delta_lines(changes, deltas)
+    assert format_alert_delta_lines(changes, deltas) == (
+        "🟢 + 10.00% — **XTM**\n🔴 - 2.00% — **wXTM**"
+    )
+    assert format_milestone_footer(20, upward=True) == format_live_milestone_footer(20, upward=True)
+    assert format_milestone_footer(20, upward=True).startswith(
+        "Palier @everyone notifié : +20%\nProchains paliers @everyone : +30% / +40% / +50%"
+    )
 
     assert update_once._is_alert_title(
         "🟢 + 0.25% — Alert XTM+10%", upward=True, test_label=None
@@ -196,7 +199,8 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
         affected,
         previous_changes={"wXTM": 18.8},
     )
-    assert trending_embed["title"] == "🔴 - 0.10% — Alerte wXTM +18.7%"
+    assert trending_embed["title"] == "Alerte wXTM +18.7%"
+    assert trending_embed["description"] == "🔴 - 0.10% — **wXTM**"
     assert "```" not in trending_embed["fields"][0]["value"]
     positive_trend_embed = build_alert_embed(
         "Alerte wXTM +18.7%",
@@ -204,17 +208,14 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
         affected,
         previous_changes={"wXTM": 18.6},
     )
-    assert positive_trend_embed["title"] == "🟢 + 0.10% — Alerte wXTM +18.7%"
+    assert positive_trend_embed["description"] == "🟢 + 0.10% — **wXTM**"
     neutral_trend_embed = build_alert_embed(
         "Alerte wXTM +18.7%",
         5763719,
         affected,
         previous_changes={"wXTM": 18.7},
     )
-    assert neutral_trend_embed["title"] == "🟡 ~ 0.00% — Alerte wXTM +18.7%"
-    assert format_alert_delta_title(
-        "Alerte wXTM +18.7%", {"wXTM": -0.001}, asset_count=1
-    ) == "🟡 ~ 0.00% — Alerte wXTM +18.7%"
+    assert neutral_trend_embed["description"] == "🟡 ~ 0.00% — **wXTM**"
     assert format_alert_text(-10, upward=False) == "Alerte XTM -10%  GO BUY"
     assert format_alert_text(10, upward=True) == "Alerte XTM +10%"
     assert format_alert_text(15.678, upward=True) == "Alerte XTM +15.68%"
@@ -229,7 +230,7 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
             {"label": "wXTM", "price": 0.002, "currency": "USD", "change": -2.0, "market": "Uniswap V4 (Ethereum)", "error": None},
         ],
     )
-    assert embed["color"] == 15158332
+    assert embed["color"] == 2829617
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
     assert "0.00100 USDT" in embed["fields"][0]["value"]
     assert "0.00200 USDT" in embed["fields"][1]["value"]
@@ -363,8 +364,11 @@ def test_upsert_alert_replaces_previous_message_without_repinging_same_ten_perce
     assert "content" not in calls[2][2]
     assert calls[2][2]["allowed_mentions"] == {"parse": []}
     assert calls[2][2]["embeds"][0]["title"] == "Alerte wXTM +12.5%"
-    assert "description" not in calls[2][2]["embeds"][0]
-    assert calls[2][2]["embeds"][0]["footer"]["text"] == "Palier @everyone notifié : +10%"
+    assert calls[2][2]["embeds"][0]["description"] == "🟡 ~ 0.00% — **wXTM**"
+    assert calls[2][2]["embeds"][0]["footer"]["text"] == (
+        "Palier @everyone notifié : +10%\n"
+        "Prochains paliers @everyone : +20% / +30% / +40% …"
+    )
     assert calls[3][1] == "DELETE"
     assert calls[3][0].endswith("/alert-message")
 
@@ -404,9 +408,10 @@ def test_upsert_alert_reports_per_asset_change_from_previous_alert(monkeypatch):
         upward=True,
     )
 
-    title = calls[2][2]["embeds"][0]["title"]
-    assert title == "🟢 + 0.25% (XTM) | wXTM - 0.25% — Alerte XTM +12.75% | wXTM +13.75%"
-    assert update_once._is_alert_title(title, upward=True, test_label=None)
+    embed = calls[2][2]["embeds"][0]
+    assert embed["title"] == "Alerte XTM +12.75% | wXTM +13.75%"
+    assert embed["description"] == "🟢 + 0.25% — **XTM**\n🔴 - 0.25% — **wXTM**"
+    assert update_once._is_alert_title(embed["title"], upward=True, test_label=None)
 
 
 def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
@@ -428,7 +433,10 @@ def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
     assert calls[2][1] == "POST"
     assert calls[2][2]["content"] == "@everyone"
     assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
-    assert calls[2][2]["embeds"][0]["footer"]["text"] == "Palier @everyone notifié : -10%"
+    assert calls[2][2]["embeds"][0]["footer"]["text"] == (
+        "Palier @everyone notifié : -10%\n"
+        "Prochains paliers @everyone : -20% / -30% / -40% …"
+    )
 
 
 def test_upsert_alert_pings_again_only_when_next_ten_percent_milestone_is_reached(monkeypatch):
@@ -440,7 +448,7 @@ def test_upsert_alert_pings_again_only_when_next_ten_percent_milestone_is_reache
             "id": "previous-alert",
             "author": {"id": "bot-id"},
             "mention_everyone": False,
-            "embeds": [{"title": "Alerte wXTM+ 19.7%", "footer": {"text": "Palier @everyone notifié : +10%"}}],
+            "embeds": [{"title": "Alerte wXTM+ 19.7%", "footer": {"text": "Palier @everyone notifié : +10%\nProchains paliers @everyone : +20% / +30% / +40% …"}}],
         }],
         {"id": "milestone-20-alert"},
         None,
@@ -452,15 +460,18 @@ def test_upsert_alert_pings_again_only_when_next_ten_percent_milestone_is_reache
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     update_once.upsert_alert(
-        "Alerte wXTM +20.1%", 5763719,
-        [{"label": "wXTM", "price": 0.002, "currency": "USD", "change": 20.1, "market": "Uniswap V4 (Ethereum)", "error": None}],
+        "Alerte wXTM +22%", 5763719,
+        [{"label": "wXTM", "price": 0.002, "currency": "USD", "change": 22.0, "market": "Uniswap V4 (Ethereum)", "error": None}],
         upward=True,
     )
 
     assert calls[2][1] == "POST"
     assert calls[2][2]["content"] == "@everyone"
     assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
-    assert calls[2][2]["embeds"][0]["footer"]["text"] == "Palier @everyone notifié : +20%"
+    assert calls[2][2]["embeds"][0]["footer"]["text"] == (
+        "Palier @everyone notifié : +20%\n"
+        "Prochains paliers @everyone : +30% / +40% / +50% …"
+    )
     assert calls[3][1] == "DELETE"
 
 
@@ -583,10 +594,29 @@ def test_test_alert_can_show_color_and_delta_after_short_label():
         show_trend_for_test=True,
     )
 
-    assert positive["title"].startswith("[test] 🟢 +")
-    assert "Alerte XTM +12% | wXTM +14%" in positive["title"]
-    assert negative["title"].startswith("[test] 🔴 -")
-    assert "Alerte XTM -12% | wXTM -14%  GO BUY" in negative["title"]
+    assert positive["title"] == "[test] Alerte XTM +12% | wXTM +14%"
+    assert positive["description"] == "🟢 + 12.00% — **XTM**\n🟢 + 14.00% — **wXTM**"
+    assert negative["title"] == "[test] Alerte XTM -12% | wXTM -14%  GO BUY"
+    assert negative["description"] == "🔴 - 12.00% — **XTM**\n🔴 - 14.00% — **wXTM**"
+
+
+def test_alert_embed_keeps_xtm_and_wxtm_trend_colors_independent_above_threshold():
+    quotes = [
+        {"label": "XTM", "price": 0.00122, "change": 22.0, "market": "MEXC", "error": None},
+        {"label": "wXTM", "price": 0.00224, "currency": "USD", "change": 12.0, "market": "Uniswap V4", "error": None},
+    ]
+    embed = update_once.build_alert_embed(
+        "Alerte XTM +22% | wXTM +12%",
+        5763719,
+        quotes,
+        previous_alert_changes={"XTM": 12.0, "wXTM": 14.0},
+    )
+
+    assert embed["description"] == "🟢 + 10.00% — **XTM**\n🔴 - 2.00% — **wXTM**"
+    assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
+    assert all(field["inline"] is False for field in embed["fields"])
+    assert "+22.00 % sur 24 h" in embed["fields"][0]["value"]
+    assert "+12.00 % sur 24 h" in embed["fields"][1]["value"]
 
 
 def test_three_minute_color_progression_keeps_both_assets_beyond_threshold(monkeypatch):
@@ -613,6 +643,31 @@ def test_three_minute_color_progression_keeps_both_assets_beyond_threshold(monke
     assert all(changes[0] >= 12 and changes[1] >= 14 for _, color, changes, _ in alerts if color == 5763719)
     assert all(changes[0] <= -12 and changes[1] <= -14 for _, color, changes, _ in alerts if color == 15158332)
     assert pauses == [60, 60, 60]
+
+
+def test_milestone_22_test_simulates_second_everyone_and_opposite_asset_trends(monkeypatch):
+    alerts = []
+    pauses = []
+
+    def fake_upsert(text, color, quotes, **kwargs):
+        alerts.append((text, color, [quote["change"] for quote in quotes], kwargs))
+        return "test-message"
+
+    monkeypatch.setattr(update_once, "upsert_alert", fake_upsert)
+    monkeypatch.setattr(update_once, "remove_test_alerts", lambda label: 1)
+    monkeypatch.setattr(update_once.time, "sleep", pauses.append)
+
+    update_once.run_milestone_22_test()
+
+    assert len(alerts) == 2
+    assert alerts[0][2] == [12.0, 14.0]
+    assert alerts[0][3]["notify_everyone"] is True
+    assert alerts[0][3]["previous_changes"] == {"XTM": 0.0, "wXTM": 0.0}
+    assert alerts[1][2] == [22.0, 12.0]
+    assert alerts[1][3]["notify_everyone"] is True
+    assert alerts[1][3]["show_trend_for_test"] is True
+    assert all(change >= 10 for change in alerts[1][2])
+    assert pauses == [20]
 
 
 def test_obsolete_timestamped_test_alert_cleanup_only_removes_that_test(monkeypatch):
@@ -650,6 +705,31 @@ def test_obsolete_timestamped_test_alert_cleanup_only_removes_that_test(monkeypa
     assert update_once.remove_obsolete_test_alert() == 1
     deletes = [url for url, method in calls if method == "DELETE"]
     assert deletes == [f"{update_once.DISCORD_BASE}/channels/{update_once.ALERT_CHANNEL_ID}/messages/old-test"]
+
+
+def test_short_test_label_cleanup_does_not_touch_production_or_other_authors(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+    messages = [
+        {"id": "test-alert", "author": {"id": "bot-id"}, "embeds": [{"title": "[test] Alerte XTM +22%"}]},
+        {"id": "production", "author": {"id": "bot-id"}, "embeds": [{"title": "Alerte XTM +22%"}]},
+        {"id": "other-author", "author": {"id": "other"}, "embeds": [{"title": "[test] Alerte XTM +22%"}]},
+    ]
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method))
+        if url.endswith("/users/@me"):
+            return {"id": "bot-id"}
+        if method == "GET":
+            return messages
+        if method == "DELETE":
+            return None
+        raise AssertionError(f"Unexpected API call: {method} {url}")
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    assert update_once.remove_test_alerts("[test]") == 1
+    deletes = [url for url, method in calls if method == "DELETE"]
+    assert deletes == [f"{update_once.DISCORD_BASE}/channels/{update_once.ALERT_CHANNEL_ID}/messages/test-alert"]
 
 
 def test_fake_four_minute_progression_uses_one_green_and_red_box(monkeypatch):
@@ -711,7 +791,7 @@ def test_positive_pair_test_posts_one_tagged_green_alert_with_everyone(monkeypat
     embed = payload["embeds"][0]
     assert embed["title"].startswith("[TEST SIMULATION ")
     assert "Alerte XTM +10.8% | wXTM +13.84%" in embed["title"]
-    assert embed["color"] == 5763719
+    assert embed["color"] == 2829617
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
     assert "0.00108 USDT" in embed["fields"][0]["value"]
     assert "0.00243 USDT" in embed["fields"][1]["value"]
@@ -745,7 +825,7 @@ def test_both_alert_simulations_are_tagged_and_never_replace_production(monkeypa
 
     assert len(results) == 2
     posts = [call[2] for call in calls if call[1] == "POST"]
-    assert [post["embeds"][0]["color"] for post in posts] == [5763719, 15158332]
+    assert [post["embeds"][0]["color"] for post in posts] == [2829617, 2829617]
     assert all(post["embeds"][0]["title"].startswith("[TEST SIMULATION BOTH ±10%]") for post in posts)
     assert all(post["content"] == "@everyone" for post in posts)
     assert all(call[1] != "DELETE" for call in calls)

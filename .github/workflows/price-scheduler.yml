@@ -13,6 +13,7 @@ name: Prix XTM planifiés
           - both_once
           - progression_3min
           - progression_4min
+          - milestone_22
           - verify_test
         default: none
       snapshot_only:
