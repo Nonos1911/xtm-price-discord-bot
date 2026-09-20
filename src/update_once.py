@@ -290,9 +290,40 @@ def upsert_alert(
     return f"alerte {text} créée dans le message {created['id']}"
 
 
+def run_fake_alert_progression() -> None:
+    """Exercise one green and one red message through a four-minute fake progression."""
+    steps = [10.0, 25.0, 100.0, 200.0, 300.0]
+    for index, magnitude in enumerate(steps):
+        for upward, change, color in (
+            (True, magnitude, 5763719),
+            (False, -magnitude, 15158332),
+        ):
+            quotes = [
+                {"label": "XTM", "price": 0.0019, "change": change, "market": "MEXC (test)", "error": None},
+                {"label": "wXTM", "price": 0.0021, "change": 3.2, "market": "Gate (test)", "error": None},
+            ]
+            text = format_alert_text(change, upward=upward)
+            result = upsert_alert(
+                text,
+                color,
+                quotes,
+                upward=upward,
+                test_label="[TEST FICTIF 4 MIN]",
+                notify_everyone=False,
+            )
+            print(f"Minute {index}: {result}")
+        if index < len(steps) - 1:
+            print("Attente de 60 secondes avant la prochaine variation simulée.", flush=True)
+            time.sleep(60)
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+    if os.getenv("TEST_ALERTS", "").strip().lower() == "progression_4min":
+        print("Test fictif sur quatre minutes : alertes marquées TEST, sans @everyone.", flush=True)
+        run_fake_alert_progression()
+        return 0
     quotes = [get_quote(coin_id, label, preferred_market) for coin_id, label, preferred_market in COINS]
     embed = build_embed(quotes)
     if "--dry-run" in sys.argv:

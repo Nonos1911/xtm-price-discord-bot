@@ -79,6 +79,11 @@ variation réelle de 10 %, lance le workflow manuellement avec l'option
 `test_alerts = both_once`. Il envoie une seule alerte verte et une seule alerte
 rouge, puis le fonctionnement planifié reste inchangé.
 
+Pour vérifier les éditions dans les mêmes messages sur quatre minutes, lance le
+workflow avec `test_alerts = progression_4min`. Il simule `+10, +25, +100,
++200, +300 %` et les mêmes valeurs négatives. Les messages portent la mention
+`[TEST FICTIF 4 MIN]` et n'envoient aucun ping.
+
 Pour tester un snapshot, lance le workflow avec `snapshot_only = true`. Le
 cronjob de quatre heures utilise cette option et publie dans `mog-post` sans
 remplacer la box actualisée dans le salon des prix.

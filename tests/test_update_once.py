@@ -143,3 +143,30 @@ def test_test_alert_label_is_separate_from_live_alert(monkeypatch):
 
     assert calls[2][2]["content"] == "[TEST 4 MIN] Alert XTM+10%"
     assert calls[2][2]["allowed_mentions"] == {"parse": []}
+
+
+def test_fake_four_minute_progression_uses_one_green_and_red_box(monkeypatch):
+    alerts = []
+    pauses = []
+
+    def fake_upsert(text, color, quotes, **kwargs):
+        alerts.append((text, color, quotes[0]["change"], kwargs))
+        return "test-message"
+
+    monkeypatch.setattr(update_once, "upsert_alert", fake_upsert)
+    monkeypatch.setattr(update_once.time, "sleep", pauses.append)
+
+    update_once.run_fake_alert_progression()
+
+    assert [alert[0] for alert in alerts] == [
+        "Alert XTM+10%", "Alert XTM-10%  GO BUY",
+        "Alert XTM+25%", "Alert XTM-25%  GO BUY",
+        "Alert XTM+100%", "Alert XTM-100%  GO BUY",
+        "Alert XTM+200%", "Alert XTM-200%  GO BUY",
+        "Alert XTM+300%", "Alert XTM-300%  GO BUY",
+    ]
+    assert [alert[1] for alert in alerts] == [5763719, 15158332] * 5
+    assert [alert[2] for alert in alerts] == [10, -10, 25, -25, 100, -100, 200, -200, 300, -300]
+    assert all(alert[3]["test_label"] == "[TEST FICTIF 4 MIN]" for alert in alerts)
+    assert all(alert[3]["notify_everyone"] is False for alert in alerts)
+    assert pauses == [60, 60, 60, 60]
