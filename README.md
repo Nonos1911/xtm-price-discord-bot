@@ -25,13 +25,15 @@ alerte active, le bot publie un nouveau message puis supprime l'ancien pour
 faire remonter l'alerte en bas du salon. Chaque alerte ne
 nomme et n'affiche que les actifs qui ont franchi son seuil ; si les deux
 franchissent le même seuil, elle affiche les deux et leurs pourcentages/prix.
-Le titre de l'alerte commence par un repère compact avant `Alert` : `🟢 +` si la
-variation dominante a augmenté, `🔴 -` si elle a diminué et `🟡 ~` si elle est
-stable ou si aucun relevé antérieur n'est disponible. Le signe n'est plus
-répété dans les détails.
-À côté du repère coloré du titre, l'alerte affiche l'écart entre la variation
-24 h actuelle et celle de l'alerte précédente, séparément pour XTM et wXTM.
-Un écart neutre s'affiche sous la forme `🟡 ~ 0.00%`.
+Le titre de l'alerte commence par une pastille puis le signe et la variation
+entre deux alertes, par exemple `🟢 + 0.20%` ou `🔴 - 1.30%`. Si XTM et wXTM
+sont concernés, le mouvement dominant apparaît d'abord et l'autre actif suit.
+Une variation arrondie à zéro s'affiche comme `🟡 ~ 0.00%`. Ce format est
+identique pour XTM et wXTM.
+À côté du repère coloré, l'alerte affiche aussi l'écart entre la variation
+24 h actuelle et celle de l'alerte précédente, séparément pour les deux actifs.
+Les signes du pourcentage d'alerte restent accolés au nom de l'actif
+(`XTM+10%`, `XTM-10%`).
 Les cours XTM et wXTM sont affichés avec exactement cinq chiffres après le
 point dans la box des cours.
 Les deux directions peuvent déclencher lors de la même exécution. Les

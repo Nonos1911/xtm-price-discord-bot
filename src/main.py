@@ -25,9 +25,11 @@ from pool_data import GECKOTERMINAL_BASE, WXTM_NETWORK, WXTM_POOL_ADDRESS, parse
 
 
 LOGGER = logging.getLogger("xtm-price-bot")
-ALERT_PREFIX = "Alert "
+ALERT_PREFIX = "Alerte "
+LEGACY_ALERT_PREFIX = "Alert "
+ALERT_PREFIXES = (ALERT_PREFIX, LEGACY_ALERT_PREFIX)
 ALERT_MILESTONE_FOOTER = "Palier @everyone notifié : "
-ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)([+-])(\d+(?:\.\d+)?)%")
+ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)([+-])\s*(\d+(?:\.\d+)?)%")
 PRICE_EMBED_TITLE = "💱 Prix XTM / wXTM"
 PRICE_CHANGE_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)\s*%\s*sur 24 h", re.IGNORECASE)
 
@@ -125,7 +127,7 @@ def variation_trend_sign(current: float, previous: float | None) -> str:
 
 
 def format_trend_prefix(sign: str) -> str:
-    return {"+": "🟢 +", "-": "🔴 -", "~": "🟡 ~"}.get(sign, "🟡 ~")
+    return {"+": "🟢 +", "-": "🔴 -", "~": "🟡 ~ 0.00%"}.get(sign, "🟡 ~ 0.00%")
 
 
 def alert_trend_sign(
@@ -142,9 +144,10 @@ def alert_trend_sign(
 
 def strip_trend_prefix(title: str) -> str:
     if title.startswith(("🟢", "🔴", "🟡")):
-        alert_start = title.find(ALERT_PREFIX, 1)
-        if alert_start >= 0:
-            return title[alert_start:]
+        alert_starts = [title.find(prefix, 1) for prefix in ALERT_PREFIXES]
+        valid_starts = [start for start in alert_starts if start >= 0]
+        if valid_starts:
+            return title[min(valid_starts):]
     for prefix in ("🟢 + ", "🔴 - ", "🟡 ~ ", "🟢+ ", "🔴- ", "⚪= ", "⚪? "):
         if title.startswith(prefix):
             return title[len(prefix):]
@@ -201,7 +204,7 @@ def calculate_alert_deltas(
 def format_alert_delta_title(
     text: str, deltas: dict[str, float], *, asset_count: int
 ) -> str:
-    """Show each asset's delta directly beside the color marker."""
+    """Put the dominant signed delta immediately after the color marker."""
     if not deltas:
         return text
     rounded_deltas = {
@@ -210,17 +213,24 @@ def format_alert_delta_title(
     }
     if all(delta == 0 for delta in rounded_deltas.values()):
         return f"🟡 ~ 0.00% — {text}"
-    dominant_delta = max(rounded_deltas.values(), key=abs)
+    dominant_label, dominant_delta = max(
+        rounded_deltas.items(), key=lambda item: abs(item[1])
+    )
     marker = "🟢" if dominant_delta > 0 else "🔴" if dominant_delta < 0 else "🟡"
-    parts = []
+    dominant_sign = "+" if dominant_delta > 0 else "-"
+    dominant_text = f"{dominant_sign} {abs(dominant_delta):.2f}%"
+    if asset_count > 1:
+        dominant_text += f" ({dominant_label})"
+    parts = [dominant_text]
     for label, delta in rounded_deltas.items():
+        if label == dominant_label:
+            continue
         if delta == 0:
             value = "~ 0.00%"
-            parts.append(f"{label} {value}" if asset_count > 1 else value)
-            continue
-        sign = "+" if delta > 0 else "-" if delta < 0 else "~"
-        value = f"{sign}{abs(delta):.2f}%"
-        parts.append(f"{label} {value}" if asset_count > 1 else value)
+        else:
+            sign = "+" if delta > 0 else "-"
+            value = f"{sign} {abs(delta):.2f}%"
+        parts.append(f"{label} {value}")
     return f"{marker} {' | '.join(parts)} — {text}"
 
 
@@ -272,7 +282,7 @@ def format_group_alert_text(
 
 def is_alert_title(title: str, *, upward: bool) -> bool:
     title = strip_trend_prefix(title)
-    return title.startswith(ALERT_PREFIX) and ("+" in title if upward else "-" in title)
+    return title.startswith(ALERT_PREFIXES) and ("+" in title if upward else "-" in title)
 
 
 def alert_milestone(quotes: list["PriceQuote"]) -> int:
@@ -534,7 +544,7 @@ class PriceBot(discord.Client):
             )
         elif previous_changes is not None or previous_alert_changes:
             baseline = previous_changes or previous_alert_changes
-            title = f"{format_trend_prefix(alert_trend_sign(quotes, baseline))} {text}"
+            title = f"{format_trend_prefix(alert_trend_sign(quotes, baseline))} — {text}"
         alert_embed = discord.Embed(
             title=title,
             colour=colour,
