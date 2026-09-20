@@ -536,30 +536,39 @@ def upsert_alert(
     current_milestone = alert_milestone(quotes)
     should_notify = notify_everyone and current_milestone > previous_milestone
     stored_milestone = max(previous_milestone, current_milestone) if notify_everyone else None
-    payload: dict[str, Any] = {
-        "embeds": [build_alert_embed(
-            text,
+    ping_quote = max(
+        (quote for quote in quotes if quote.get("change") is not None),
+        key=lambda quote: abs(float(quote["change"])),
+        default=None,
+    ) if should_notify else None
+    created_messages = []
+    for quote in quotes:
+        label = str(quote["label"])
+        asset_text = format_alert_text(float(quote["change"]), upward=upward, label=label)
+        asset_embed = build_alert_embed(
+            asset_text,
             color,
-            quotes,
+            [quote],
             notified_milestone=stored_milestone,
             upward=upward,
             previous_changes=previous_changes,
             previous_alert_changes=previous_alert_changes,
             test_label=test_label,
             show_trend_for_test=show_trend_for_test,
-        )],
-        "allowed_mentions": {"parse": ["everyone"]} if should_notify else {"parse": []},
-    }
-    if should_notify:
-        # Keep the mention separate from the alert text, which appears once in
-        # the embed title. Non-ping refreshes have no message content at all.
-        payload["content"] = "@everyone"
-    created = api_json(
-        f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages",
-        headers=headers,
-        method="POST",
-        body=payload,
-    )
+        )
+        ping_this_asset = ping_quote is not None and label == str(ping_quote["label"])
+        payload: dict[str, Any] = {
+            "embeds": [asset_embed],
+            "allowed_mentions": {"parse": ["everyone"]} if ping_this_asset else {"parse": []},
+        }
+        if ping_this_asset:
+            payload["content"] = "@everyone"
+        created_messages.append(api_json(
+            f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages",
+            headers=headers,
+            method="POST",
+            body=payload,
+        ))
     removed = 0
     for old_message in matching:
         api_json(
@@ -568,9 +577,18 @@ def upsert_alert(
             method="DELETE",
         )
         removed += 1
-    suffix = f"; {removed} ancienne(s) alerte(s) supprimée(s)" if removed else ""
+    published = ", ".join(
+        f"{quote['label']} ({message['id']})"
+        for quote, message in zip(quotes, created_messages)
+    )
+    suffix = (
+        f"; {removed} ancienne alerte{'s' if removed != 1 else ''} supprimée"
+        f"{'s' if removed != 1 else ''}"
+        if removed
+        else ""
+    )
     ping = f"; @everyone palier {('+' if upward else '-')}{current_milestone}%" if should_notify else ""
-    return f"nouveau message d'alerte {created['id']} publié{suffix}{ping}"
+    return f"Alertes séparées publiées : {published}{suffix}{ping}"
 
 
 def clear_alert_if_below_threshold(quotes: list[dict[str, Any]], *, upward: bool) -> str:
@@ -875,8 +893,8 @@ def verify_fake_alert_progression() -> None:
         headers=headers,
     )
     expected = [
-        ("Alerte XTM +300%", 5763719, "0.004 USDT"),
-        ("Alerte XTM -300%  GO BUY", 15158332, "0 USDT"),
+        ("Alerte XTM +300%", 2829617, "0.004 USDT"),
+        ("Alerte XTM -300%  GO BUY", 2829617, "0 USDT"),
     ]
     for expected_title, expected_color, expected_price in expected:
         title = f"[TEST FICTIF 4 MIN] {expected_title}"

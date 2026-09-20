@@ -529,22 +529,42 @@ class PriceBot(discord.Client):
                     existing_messages.append(message)
         previous_alert_changes = extract_alert_changes(existing_messages)
 
-        current_display_changes = {}
+        current_milestone = alert_milestone(quotes)
+        previous_milestone = max(
+            (message_notified_milestone(message, upward=upward) for message in existing_messages),
+            default=0,
+        )
+        should_notify = current_milestone > previous_milestone
+        stored_milestone = max(previous_milestone, current_milestone)
+        ping_quote = max(
+            (quote for quote in quotes if quote.change_24h is not None),
+            key=lambda quote: abs(float(quote.change_24h)),
+            default=None,
+        ) if should_notify else None
+
+        created_messages = []
         for quote in quotes:
             if quote.change_24h is None:
                 continue
             magnitude = min(300.0, max(self.alert_threshold, abs(quote.change_24h)))
-            current_display_changes[quote.label] = -magnitude if quote.change_24h < 0 else magnitude
-        deltas = calculate_alert_deltas(
-            current_display_changes, previous_alert_changes, previous_changes
-        )
-        alert_embed = discord.Embed(
-            title=text,
-            description=format_alert_delta_lines(current_display_changes, deltas),
-            colour=discord.Colour(0x2B2D31),
-            timestamp=datetime.now(timezone.utc),
-        )
-        for quote in quotes:
+            current_display_changes = {
+                quote.label: -magnitude if quote.change_24h < 0 else magnitude
+            }
+            deltas = calculate_alert_deltas(
+                current_display_changes, previous_alert_changes, previous_changes
+            )
+            asset_text = format_alert_text(
+                quote.change_24h,
+                upward=upward,
+                threshold=self.alert_threshold,
+                label=quote.label,
+            )
+            alert_embed = discord.Embed(
+                title=asset_text,
+                description=format_alert_delta_lines(current_display_changes, deltas),
+                colour=discord.Colour(0x2B2D31),
+                timestamp=datetime.now(timezone.utc),
+            )
             if quote.price is None:
                 value = f"Indisponible — {quote.error or 'aucun marché USDT'}"
             else:
@@ -556,34 +576,26 @@ class PriceBot(discord.Client):
                 if quote.market:
                     value += f"\nMarché : {quote.market}"
             alert_embed.add_field(name=quote.label, value=value, inline=False)
-
-        previous_milestone = max(
-            (message_notified_milestone(message, upward=upward) for message in existing_messages),
-            default=0,
-        )
-        current_milestone = alert_milestone(quotes)
-        should_notify = current_milestone > previous_milestone
-        stored_milestone = max(previous_milestone, current_milestone)
-        sign = "+" if upward else "-"
-        alert_embed.set_footer(text=format_milestone_footer(stored_milestone, upward=upward))
-        content = "@everyone" if should_notify else None
-        created = await channel.send(  # type: ignore[attr-defined]
-            content=content,
-            embed=alert_embed,
-            allowed_mentions=(
-                discord.AllowedMentions(everyone=True)
-                if should_notify
-                else discord.AllowedMentions.none()
-            ),
-        )
+            alert_embed.set_footer(text=format_milestone_footer(stored_milestone, upward=upward))
+            ping_this_asset = ping_quote is not None and quote.label == ping_quote.label
+            created_messages.append(await channel.send(  # type: ignore[attr-defined]
+                content="@everyone" if ping_this_asset else None,
+                embed=alert_embed,
+                allowed_mentions=(
+                    discord.AllowedMentions(everyone=True)
+                    if ping_this_asset
+                    else discord.AllowedMentions.none()
+                ),
+            ))
         deleted = 0
         for old_message in existing_messages:
             await old_message.delete()
             deleted += 1
-        ping = f"; @everyone au palier {sign}{current_milestone}%" if should_notify else ""
+        ping = f"; @everyone au palier {('+' if upward else '-')}{current_milestone}%" if should_notify else ""
         LOGGER.info(
-            "Nouvelle alerte publiée (%s); %s ancienne(s) supprimée(s)%s",
-            created.id,
+            "%s alerte(s) séparée(s) publiée(s) (%s); %s ancienne(s) alerte(s) supprimée(s)%s",
+            len(created_messages),
+            ", ".join(str(message.id) for message in created_messages),
             deleted,
             ping,
         )

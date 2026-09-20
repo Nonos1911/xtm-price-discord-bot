@@ -20,16 +20,14 @@ conçu pour fonctionner dans un worker cloud, donc ton PC peut être éteint.
 Le bot surveille séparément les variations 24 h de `XTM` et `wXTM` fournies par
 leurs marchés respectifs. Si au moins l'un atteint `+10 %`, une alerte verte est publiée dans
 `mog-post` (`1163364187796426776`). Si au moins l'un atteint
-`-10 %`, une alerte rouge distincte est publiée. À chaque actualisation d'une
-alerte active, le bot publie un nouveau message puis supprime l'ancien pour
-faire remonter l'alerte en bas du salon. Chaque alerte ne
-nomme et n'affiche que les actifs qui ont franchi son seuil ; si les deux
-franchissent le même seuil, elle affiche les deux et leurs pourcentages/prix.
-Sous le titre, l'alerte affiche une ligne par actif, avec sa propre pastille et
-son propre delta depuis l'alerte précédente : `🟢 + 0.20% — XTM` puis
-`🔴 - 1.30% — wXTM`, par exemple. Une variation arrondie à zéro s'affiche
-comme `🟡 ~ 0.00%`. Ainsi la couleur de XTM ne dépend jamais du mouvement de
-wXTM, et inversement.
+`-10 %`, une alerte rouge distincte est publiée. XTM et wXTM ont toujours
+chacun leur propre message/box ; à chaque actualisation d'une alerte active,
+le bot publie les nouvelles boxes puis supprime les anciennes pour les faire
+remonter en bas du salon. Chaque box ne nomme et n'affiche que l'actif qui a
+franchi son seuil, avec sa propre pastille et son delta depuis l'alerte
+précédente : `🟢 + 0.20% — XTM` ou `🔴 - 1.30% — wXTM`, par exemple. Une
+variation arrondie à zéro s'affiche comme `🟡 ~ 0.00%`. Ainsi la couleur de
+XTM ne dépend jamais du mouvement de wXTM, et inversement.
 Le pourcentage d'alerte est séparé du nom de l'actif par une espace
 (`XTM +10%`, `wXTM -13.84%`).
 Les cours XTM et wXTM sont affichés avec exactement cinq chiffres après le
@@ -43,14 +41,15 @@ prochain franchissement de `+10 %` ou `-10 %`. Une alerte est conservée si une
 variation 24 h configurée est momentanément indisponible. `@everyone` ne
 notifie qu'aux paliers franchis de 10 % en 10 % (±10,
 ±20, …, ±300), sans reping à chaque actualisation dans un même palier. Le
-dernier palier notifié est conservé dans le pied de l'embed pour éviter les
-doublons malgré le remplacement du message. Le pied de l'embed indique aussi les
-trois prochains paliers `@everyone` à surveiller. Les variations entre alertes
-sont affichées dans deux lignes indépendantes, une par actif : la pastille XTM
-ne reprend jamais la couleur de wXTM (et inversement). Ce message est un signal
-automatique et ne constitue pas un conseil financier.
-Le titre contient les alertes XTM/wXTM ; quand un palier ping @everyone, le
-contenu du message ne contient que cette mention.
+dernier palier notifié est conservé dans le pied de chaque embed pour éviter
+les doublons malgré le remplacement des messages. Le pied indique aussi les
+trois prochains paliers `@everyone` à surveiller. Chaque box conserve ainsi
+son propre delta et sa propre couleur. Ces alertes sont des signaux automatiques
+et ne constituent pas un conseil financier.
+Le titre de chaque box contient le nom et la variation de son seul actif. Quand
+un palier commun ping `@everyone`, une seule des boxes porte la mention, afin
+de ne pas envoyer de doublon ; les deux affichent le palier notifié et les
+prochains paliers à surveiller.
 
 Un cronjob dédié peut lancer le workflow avec `snapshot_only = true` toutes les
 4 heures. Dans ce mode, le bot publie une nouvelle embed ponctuelle dans

@@ -359,7 +359,7 @@ def test_upsert_alert_replaces_previous_message_without_repinging_same_ten_perce
         upward=True,
     )
 
-    assert result == "nouveau message d'alerte fresh-alert publié; 1 ancienne(s) alerte(s) supprimée(s)"
+    assert result == "Alertes séparées publiées : wXTM (fresh-alert); 1 ancienne alerte supprimée"
     assert calls[2][1] == "POST"
     assert "content" not in calls[2][2]
     assert calls[2][2]["allowed_mentions"] == {"parse": []}
@@ -389,7 +389,8 @@ def test_upsert_alert_reports_per_asset_change_from_previous_alert(monkeypatch):
                 ],
             }],
         }],
-        {"id": "fresh-alert"},
+        {"id": "fresh-xtm-alert"},
+        {"id": "fresh-wxtm-alert"},
         None,
     ])
 
@@ -408,10 +409,16 @@ def test_upsert_alert_reports_per_asset_change_from_previous_alert(monkeypatch):
         upward=True,
     )
 
-    embed = calls[2][2]["embeds"][0]
-    assert embed["title"] == "Alerte XTM +12.75% | wXTM +13.75%"
-    assert embed["description"] == "🟢 + 0.25% — **XTM**\n🔴 - 0.25% — **wXTM**"
-    assert update_once._is_alert_title(embed["title"], upward=True, test_label=None)
+    xtm_embed = calls[2][2]["embeds"][0]
+    wxtm_embed = calls[3][2]["embeds"][0]
+    assert xtm_embed["title"] == "Alerte XTM +12.75%"
+    assert xtm_embed["description"] == "🟢 + 0.25% — **XTM**"
+    assert wxtm_embed["title"] == "Alerte wXTM +13.75%"
+    assert wxtm_embed["description"] == "🔴 - 0.25% — **wXTM**"
+    assert "content" not in calls[2][2]
+    assert calls[3][2]["content"] == "@everyone"
+    assert update_once._is_alert_title(xtm_embed["title"], upward=True, test_label=None)
+    assert update_once._is_alert_title(wxtm_embed["title"], upward=True, test_label=None)
 
 
 def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
@@ -473,6 +480,78 @@ def test_upsert_alert_pings_again_only_when_next_ten_percent_milestone_is_reache
         "Prochains paliers @everyone : +30% / +40% / +50% …"
     )
     assert calls[3][1] == "DELETE"
+
+
+def test_separate_asset_boxes_keep_independent_deltas_and_ping_once_at_next_milestone(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+    previous_footer = {
+        "text": "Palier @everyone notifié : +10%\n"
+        "Prochains paliers @everyone : +20% / +30% / +40% …"
+    }
+    previous_messages = [
+        {
+            "id": "old-xtm",
+            "author": {"id": "bot-id"},
+            "mention_everyone": False,
+            "embeds": [{
+                "title": "Alerte XTM +12%",
+                "fields": [{"name": "XTM", "value": "**0.00100 USDT**\n+12.00 % sur 24 h"}],
+                "footer": previous_footer,
+            }],
+        },
+        {
+            "id": "old-wxtm",
+            "author": {"id": "bot-id"},
+            "mention_everyone": True,
+            "embeds": [{
+                "title": "Alerte wXTM +14%",
+                "fields": [{"name": "wXTM", "value": "**0.00200 USDT**\n+14.00 % sur 24 h"}],
+                "footer": previous_footer,
+            }],
+        },
+    ]
+    responses = iter([
+        {"id": "bot-id"},
+        previous_messages,
+        {"id": "new-xtm"},
+        {"id": "new-wxtm"},
+        None,
+        None,
+    ])
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method, body))
+        return next(responses)
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    result = update_once.upsert_alert(
+        "Alerte XTM +22% | wXTM +12%",
+        5763719,
+        [
+            {"label": "XTM", "price": 0.0011, "change": 22.0, "market": "MEXC", "error": None},
+            {"label": "wXTM", "price": 0.002, "currency": "USD", "change": 12.0, "market": "Uniswap V4", "error": None},
+        ],
+        upward=True,
+    )
+
+    posts = [body for _, method, body in calls if method == "POST"]
+    assert len(posts) == 2
+    assert posts[0]["embeds"][0]["title"] == "Alerte XTM +22%"
+    assert posts[0]["embeds"][0]["description"] == "🟢 + 10.00% — **XTM**"
+    assert posts[1]["embeds"][0]["title"] == "Alerte wXTM +12%"
+    assert posts[1]["embeds"][0]["description"] == "🔴 - 2.00% — **wXTM**"
+    assert posts[0]["content"] == "@everyone"
+    assert posts[0]["allowed_mentions"] == {"parse": ["everyone"]}
+    assert "content" not in posts[1]
+    assert posts[1]["allowed_mentions"] == {"parse": []}
+    for post in posts:
+        assert post["embeds"][0]["footer"]["text"] == (
+            "Palier @everyone notifié : +20%\n"
+            "Prochains paliers @everyone : +30% / +40% / +50% …"
+        )
+    assert [method for _, method, _ in calls if method == "DELETE"] == ["DELETE", "DELETE"]
+    assert "@everyone palier +20%" in result
 
 
 def test_upsert_alert_adds_everyone_once_to_legacy_message(monkeypatch):
@@ -561,7 +640,9 @@ def test_test_alert_label_is_separate_from_live_alert(monkeypatch):
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     update_once.upsert_alert(
-        "Alerte XTM +10%", 5763719, [], upward=True, test_label="[TEST 4 MIN]", notify_everyone=False
+        "Alerte XTM +10%", 5763719,
+        [{"label": "XTM", "price": 0.0011, "change": 10, "market": "MEXC", "error": None}],
+        upward=True, test_label="[TEST 4 MIN]", notify_everyone=False
     )
 
     assert "content" not in calls[2][2]
@@ -766,13 +847,14 @@ def test_fake_four_minute_progression_uses_one_green_and_red_box(monkeypatch):
     assert pauses == [60, 60, 60, 60]
 
 
-def test_positive_pair_test_posts_one_tagged_green_alert_with_everyone(monkeypatch):
+def test_positive_pair_test_posts_two_separate_alert_boxes_and_one_everyone_ping(monkeypatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
     calls = []
     responses = iter([
         {"id": "bot-id"},
         [{"id": "production", "author": {"id": "bot-id"}, "embeds": [{"title": "Alerte wXTM +17%"}]}],
-        {"id": "simulated-alert"},
+        {"id": "simulated-xtm-alert"},
+        {"id": "simulated-wxtm-alert"},
     ])
 
     def fake_api_json(url, *, headers=None, method="GET", body=None):
@@ -782,19 +864,21 @@ def test_positive_pair_test_posts_one_tagged_green_alert_with_everyone(monkeypat
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     result = update_once.run_positive_pair_test()
 
-    assert "simulated-alert" in result
+    assert "simulated-xtm-alert" in result and "simulated-wxtm-alert" in result
     assert "@everyone palier +10%" in result
-    post = next(call for call in calls if call[1] == "POST")
-    payload = post[2]
-    assert payload["content"] == "@everyone"
-    assert payload["allowed_mentions"] == {"parse": ["everyone"]}
-    embed = payload["embeds"][0]
-    assert embed["title"].startswith("[TEST SIMULATION ")
-    assert "Alerte XTM +10.8% | wXTM +13.84%" in embed["title"]
-    assert embed["color"] == 2829617
-    assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
-    assert "0.00108 USDT" in embed["fields"][0]["value"]
-    assert "0.00243 USDT" in embed["fields"][1]["value"]
+    posts = [call[2] for call in calls if call[1] == "POST"]
+    assert len(posts) == 2
+    assert posts[0]["embeds"][0]["title"].startswith("[TEST SIMULATION ")
+    assert posts[0]["embeds"][0]["title"].endswith("Alerte XTM +10.8%")
+    assert posts[1]["embeds"][0]["title"].endswith("Alerte wXTM +13.84%")
+    assert "content" not in posts[0]
+    assert posts[1]["content"] == "@everyone"
+    assert posts[0]["allowed_mentions"] == {"parse": []}
+    assert posts[1]["allowed_mentions"] == {"parse": ["everyone"]}
+    assert all(post["embeds"][0]["color"] == 2829617 for post in posts)
+    assert [post["embeds"][0]["fields"][0]["name"] for post in posts] == ["XTM", "wXTM"]
+    assert "0.00108 USDT" in posts[0]["embeds"][0]["fields"][0]["value"]
+    assert "0.00243 USDT" in posts[1]["embeds"][0]["fields"][0]["value"]
     assert all(method != "DELETE" for _, method, _ in calls)
 
 
@@ -825,9 +909,11 @@ def test_both_alert_simulations_are_tagged_and_never_replace_production(monkeypa
 
     assert len(results) == 2
     posts = [call[2] for call in calls if call[1] == "POST"]
-    assert [post["embeds"][0]["color"] for post in posts] == [2829617, 2829617]
+    assert len(posts) == 4
+    assert [post["embeds"][0]["color"] for post in posts] == [2829617] * 4
     assert all(post["embeds"][0]["title"].startswith("[TEST SIMULATION BOTH ±10%]") for post in posts)
-    assert all(post["content"] == "@everyone" for post in posts)
+    assert sum(post.get("content") == "@everyone" for post in posts) == 2
+    assert [post["embeds"][0]["fields"][0]["name"] for post in posts] == ["XTM", "wXTM", "XTM", "wXTM"]
     assert all(call[1] != "DELETE" for call in calls)
 
 
@@ -839,7 +925,7 @@ def test_verify_fake_progression_checks_one_mentioned_box_per_direction(monkeypa
             "author": {"id": "bot-id"},
             "content": "@everyone [TEST FICTIF 4 MIN] Alerte XTM +300%",
             "mention_everyone": True,
-            "embeds": [{"title": "[TEST FICTIF 4 MIN] Alerte XTM +300%", "color": 5763719,
+            "embeds": [{"title": "[TEST FICTIF 4 MIN] Alerte XTM +300%", "color": 2829617,
                         "fields": [{"name": "XTM", "value": "**0.004 USDT**"}]}],
         },
         {
@@ -847,7 +933,7 @@ def test_verify_fake_progression_checks_one_mentioned_box_per_direction(monkeypa
             "author": {"id": "bot-id"},
             "content": "@everyone [TEST FICTIF 4 MIN] Alerte XTM -300%  GO BUY",
             "mention_everyone": True,
-            "embeds": [{"title": "[TEST FICTIF 4 MIN] Alerte XTM -300%  GO BUY", "color": 15158332,
+            "embeds": [{"title": "[TEST FICTIF 4 MIN] Alerte XTM -300%  GO BUY", "color": 2829617,
                         "fields": [{"name": "XTM", "value": "**0 USDT**"}]}],
         },
     ]
