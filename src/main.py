@@ -122,10 +122,27 @@ def variation_trend_sign(current: float, previous: float | None) -> str:
     return "="
 
 
-def format_trend_marker(sign: str) -> str:
-    if sign in {"+", "-"}:
-        return f"```diff\n{sign}\n```"
-    return f"`{sign}`"
+def format_trend_prefix(sign: str) -> str:
+    return {"+": "🟢+", "-": "🔴-", "=": "⚪=", "?": "⚪?"}.get(sign, "⚪?")
+
+
+def alert_trend_sign(
+    quotes: list["PriceQuote"], previous_changes: dict[str, float]
+) -> str:
+    available = [quote for quote in quotes if quote.change_24h is not None]
+    if not available:
+        return "?"
+    leading = max(available, key=lambda quote: abs(float(quote.change_24h)))
+    return variation_trend_sign(
+        float(leading.change_24h), previous_changes.get(leading.label)
+    )
+
+
+def strip_trend_prefix(title: str) -> str:
+    for prefix in ("🟢+ ", "🔴- ", "⚪= ", "⚪? "):
+        if title.startswith(prefix):
+            return title[len(prefix):]
+    return title
 
 
 def extract_previous_price_changes(embed: discord.Embed) -> dict[str, float]:
@@ -186,6 +203,7 @@ def format_group_alert_text(
 
 
 def is_alert_title(title: str, *, upward: bool) -> bool:
+    title = strip_trend_prefix(title)
     return title.startswith(ALERT_PREFIX) and ("+" in title if upward else "-" in title)
 
 
@@ -421,8 +439,11 @@ class PriceBot(discord.Client):
 
     async def upsert_alert(self, text: str, colour: discord.Colour, quotes: list[PriceQuote], *, upward: bool, previous_changes: dict[str, float] | None = None) -> None:
         channel = await self.resolve_channel(self.alert_channel_id)
+        title = text
+        if previous_changes is not None:
+            title = f"{format_trend_prefix(alert_trend_sign(quotes, previous_changes))} {text}"
         alert_embed = discord.Embed(
-            title=text,
+            title=title,
             colour=colour,
             timestamp=datetime.now(timezone.utc),
         )
@@ -437,12 +458,6 @@ class PriceBot(discord.Client):
                 value = f"**{format_price(quote.price, quote.currency, label=quote.label)}**\n{format_change(display_change)}"
                 if quote.market:
                     value += f"\nMarché : {quote.market}"
-            if quote.change_24h is not None:
-                trend = variation_trend_sign(
-                    quote.change_24h,
-                    (previous_changes or {}).get(quote.label),
-                )
-                value = f"{format_trend_marker(trend)}\n{value}"
             alert_embed.add_field(name=quote.label, value=value, inline=True)
 
         bot_id = self.user.id if self.user else None

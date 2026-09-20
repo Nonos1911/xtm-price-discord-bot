@@ -140,7 +140,15 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
         affected,
         previous_changes={"wXTM": 18.8},
     )
-    assert trending_embed["fields"][0]["value"].startswith("```diff\n-\n```\n")
+    assert trending_embed["title"] == "🔴- Alert wXTM+18.7%"
+    assert "```" not in trending_embed["fields"][0]["value"]
+    positive_trend_embed = build_alert_embed(
+        "Alert wXTM+18.7%",
+        5763719,
+        affected,
+        previous_changes={"wXTM": 18.6},
+    )
+    assert positive_trend_embed["title"] == "🟢+ Alert wXTM+18.7%"
     assert format_alert_text(-10, upward=False) == "Alert XTM-10%  GO BUY"
     assert format_alert_text(10, upward=True) == "Alert XTM+10%"
     assert format_alert_text(15.678, upward=True) == "Alert XTM+15.68%"
@@ -383,8 +391,8 @@ def test_clear_alert_removes_only_the_matching_production_direction(monkeypatch)
     responses = iter([
         {"id": "bot-id"},
         [
-            {"id": "green", "author": {"id": "bot-id"}, "embeds": [{"title": "Alert wXTM+16.67%"}]},
-            {"id": "red", "author": {"id": "bot-id"}, "embeds": [{"title": "Alert XTM-12%  GO BUY"}]},
+            {"id": "green", "author": {"id": "bot-id"}, "embeds": [{"title": "🔴- Alert wXTM+16.67%"}]},
+            {"id": "red", "author": {"id": "bot-id"}, "embeds": [{"title": "🟢+ Alert XTM-12%  GO BUY"}]},
             {"id": "test", "author": {"id": "bot-id"}, "embeds": [{"title": "[TEST] Alert XTM+20%"}]},
             {"id": "other-bot", "author": {"id": "other"}, "embeds": [{"title": "Alert XTM+20%"}]},
         ],

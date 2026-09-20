@@ -25,10 +25,10 @@ alerte active, le bot publie un nouveau message puis supprime l'ancien pour
 faire remonter l'alerte en bas du salon. Chaque alerte ne
 nomme et n'affiche que les actifs qui ont franchi son seuil ; si les deux
 franchissent le même seuil, elle affiche les deux et leurs pourcentages/prix.
-Chaque actif dans la box affiche en première ligne un signe compact : `+` vert
-ou `-` rouge selon que sa variation 24 h a augmenté ou diminué depuis le relevé
-précédent (`=` si elle est identique, `?` si aucun relevé antérieur n'est
-disponible).
+Le titre de l'alerte commence par un repère compact avant `Alert` : `🟢+` si la
+variation dominante a augmenté, `🔴-` si elle a diminué depuis le relevé
+précédent (`⚪=` si elle est identique, `⚪?` si aucun relevé antérieur n'est
+disponible). Le signe n'est plus répété dans les détails.
 Les deux directions peuvent déclencher lors de la même exécution. Les
 pourcentages affichés sont plafonnés à `+300 %` et `-300 %`. Quand un actif
 repasse sous le seuil, il disparaît de la prochaine mise à jour si un autre

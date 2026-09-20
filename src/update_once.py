@@ -152,10 +152,7 @@ def price_text(quote: dict[str, Any]) -> str:
     change = quote["change"]
     change_text = "variation 24 h indisponible" if change is None else f"{change:+.2f} % sur 24 h"
     currency = "USDT" if is_wxtm else quote.get("currency", "USDT")
-    lines = []
-    if quote.get("trend"):
-        lines.append(format_trend_marker(str(quote["trend"])))
-    lines.extend((f"**{formatted} {currency}**", change_text))
+    lines = [f"**{formatted} {currency}**", change_text]
     lines.append(f"Marché : {quote['market']}")
     return "\n".join(lines)
 
@@ -184,10 +181,27 @@ def variation_trend_sign(current: float, previous: float | None) -> str:
     return "="
 
 
-def format_trend_marker(sign: str) -> str:
-    if sign in {"+", "-"}:
-        return f"```diff\n{sign}\n```"
-    return f"`{sign}`"
+def format_trend_prefix(sign: str) -> str:
+    return {"+": "🟢+", "-": "🔴-", "=": "⚪=", "?": "⚪?"}.get(sign, "⚪?")
+
+
+def alert_trend_sign(
+    quotes: list[dict[str, Any]], previous_changes: dict[str, float]
+) -> str:
+    available = [quote for quote in quotes if quote.get("change") is not None]
+    if not available:
+        return "?"
+    leading = max(available, key=lambda quote: abs(float(quote["change"])))
+    return variation_trend_sign(
+        float(leading["change"]), previous_changes.get(str(leading["label"]))
+    )
+
+
+def strip_trend_prefix(title: str) -> str:
+    for prefix in ("🟢+ ", "🔴- ", "⚪= ", "⚪? "):
+        if title.startswith(prefix):
+            return title[len(prefix):]
+    return title
 
 
 def build_embed(quotes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -269,22 +283,17 @@ def build_alert_embed(
     upward: bool = True,
     previous_changes: dict[str, float] | None = None,
 ) -> dict[str, Any]:
+    display_title = text
+    if previous_changes is not None and not text.startswith("["):
+        display_title = f"{format_trend_prefix(alert_trend_sign(quotes or [], previous_changes))} {text}"
     embed = {
-        "title": text,
+        "title": display_title,
         "color": color,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     if quotes is not None:
         alert_quotes = []
         for quote in quotes:
-            if quote.get("change") is not None:
-                quote = {
-                    **quote,
-                    "trend": variation_trend_sign(
-                        float(quote["change"]),
-                        (previous_changes or {}).get(str(quote["label"])),
-                    ),
-                }
             if quote["change"] is not None:
                 magnitude = min(300.0, max(ALERT_THRESHOLD_PERCENT, abs(float(quote["change"]))))
                 bounded_change = -magnitude if float(quote["change"]) < 0 else magnitude
@@ -354,6 +363,7 @@ def _is_alert_title(title: str, *, upward: bool, test_label: str | None) -> bool
     elif title.startswith("["):
         # Do not let test alerts get reused as production alerts.
         return False
+    title = strip_trend_prefix(title)
     return title.startswith(ALERT_PREFIX) and ("+" in title if upward else "-" in title)
 
 

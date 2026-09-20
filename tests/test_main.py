@@ -14,7 +14,7 @@ from main import (
     alert_milestone,
     alert_quotes_for_direction,
     extract_previous_price_changes,
-    format_trend_marker,
+    format_trend_prefix,
     format_change,
     format_group_alert_text,
     format_price,
@@ -64,7 +64,10 @@ def test_worker_alerts_include_only_affected_tokens_and_keep_one_direction_key()
     assert is_alert_title("Alert wXTM+17.19%", upward=True)
     assert is_alert_title("Alert XTM+10% | wXTM+17.19%", upward=True)
     assert is_alert_title("Alert wXTM-10%  GO BUY", upward=False)
+    assert is_alert_title("🟢+ Alert wXTM+10%", upward=True)
+    assert is_alert_title("🔴- Alert wXTM-10%  GO BUY", upward=False)
     assert not is_alert_title("Alert wXTM-10%  GO BUY", upward=True)
+    assert not is_alert_title("🟢+ Alert wXTM-10%  GO BUY", upward=True)
 
 
 def test_worker_only_clears_alerts_with_complete_configured_market_data():
@@ -87,9 +90,9 @@ def test_worker_parses_previous_changes_and_calculates_trend_signs():
     assert extract_previous_price_changes(embed) == {"XTM": 3.25, "wXTM": -12.5}
     assert variation_trend_sign(-11.5, -12.5) == "+"
     assert variation_trend_sign(-13.0, -12.5) == "-"
-    assert format_trend_marker("+") == "```diff\n+\n```"
-    assert format_trend_marker("-") == "```diff\n-\n```"
-    assert format_trend_marker("?") == "`?`"
+    assert format_trend_prefix("+") == "🟢+"
+    assert format_trend_prefix("-") == "🔴-"
+    assert format_trend_prefix("?") == "⚪?"
 
 
 def test_worker_alerts_can_trigger_both_assets_and_both_directions_independently():
