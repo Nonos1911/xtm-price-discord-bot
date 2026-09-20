@@ -592,6 +592,71 @@ def test_fake_four_minute_progression_uses_one_green_and_red_box(monkeypatch):
     assert pauses == [60, 60, 60, 60]
 
 
+def test_positive_pair_test_posts_one_tagged_green_alert_with_everyone(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+    responses = iter([
+        {"id": "bot-id"},
+        [{"id": "production", "author": {"id": "bot-id"}, "embeds": [{"title": "Alerte wXTM +17%"}]}],
+        {"id": "simulated-alert"},
+    ])
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method, body))
+        return next(responses)
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    result = update_once.run_positive_pair_test()
+
+    assert "simulated-alert" in result
+    assert "@everyone palier +10%" in result
+    post = next(call for call in calls if call[1] == "POST")
+    payload = post[2]
+    assert payload["content"] == "@everyone"
+    assert payload["allowed_mentions"] == {"parse": ["everyone"]}
+    embed = payload["embeds"][0]
+    assert embed["title"].startswith("[TEST SIMULATION ")
+    assert "Alerte XTM +10.8% | wXTM +13.84%" in embed["title"]
+    assert embed["color"] == 5763719
+    assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
+    assert "0.00108 USDT" in embed["fields"][0]["value"]
+    assert "0.00243 USDT" in embed["fields"][1]["value"]
+    assert all(method != "DELETE" for _, method, _ in calls)
+
+
+def test_both_alert_simulations_are_tagged_and_never_replace_production(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+    production_message = {
+        "id": "production",
+        "author": {"id": "bot-id"},
+        "embeds": [{"title": "🟢 + 0.20% — Alerte wXTM +17%"}],
+    }
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method, body))
+        if url.endswith("/users/@me"):
+            return {"id": "bot-id"}
+        if method == "GET":
+            return [production_message]
+        if method == "POST":
+            return {"id": f"test-{sum(call[1] == 'POST' for call in calls)}"}
+        raise AssertionError(f"Unexpected API call: {method} {url}")
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    results = update_once.run_both_alert_tests([
+        {"label": "XTM", "price": 0.001, "change": 4.0, "market": "MEXC", "error": None},
+        {"label": "wXTM", "price": 0.002, "change": 9.0, "market": "Uniswap V4", "error": None},
+    ])
+
+    assert len(results) == 2
+    posts = [call[2] for call in calls if call[1] == "POST"]
+    assert [post["embeds"][0]["color"] for post in posts] == [5763719, 15158332]
+    assert all(post["embeds"][0]["title"].startswith("[TEST SIMULATION BOTH ±10%]") for post in posts)
+    assert all(post["content"] == "@everyone" for post in posts)
+    assert all(call[1] != "DELETE" for call in calls)
+
+
 def test_verify_fake_progression_checks_one_mentioned_box_per_direction(monkeypatch, capsys):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
     messages = [

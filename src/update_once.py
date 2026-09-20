@@ -638,6 +638,55 @@ def run_fake_alert_progression() -> None:
             time.sleep(60)
 
 
+def run_positive_pair_test() -> str:
+    """Post one tagged, green XTM+wXTM simulation without touching live alerts."""
+    quotes = [
+        {"label": "XTM", "price": 0.00108, "change": 10.8, "market": "MEXC (simulation)", "error": None},
+        {
+            "label": "wXTM",
+            "price": 0.00243,
+            "currency": "USD",
+            "change": 13.84,
+            "market": "Uniswap V4 (Ethereum, simulation)",
+            "error": None,
+        },
+    ]
+    affected = alert_quotes_for_direction(quotes, upward=True)
+    text = format_group_alert_text(affected, upward=True)
+    test_label = f"[TEST SIMULATION {datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} UTC]"
+    return upsert_alert(
+        text,
+        5763719,
+        affected,
+        upward=True,
+        test_label=test_label,
+        notify_everyone=True,
+    )
+
+
+def run_both_alert_tests(quotes: list[dict[str, Any]]) -> list[str]:
+    """Post tagged green/red simulations without touching production alerts."""
+    results = []
+    test_label = "[TEST SIMULATION BOTH ±10%]"
+    for upward, color in ((True, 5763719), (False, 15158332)):
+        simulated = [
+            {**quote, "change": ALERT_THRESHOLD_PERCENT if upward else -ALERT_THRESHOLD_PERCENT}
+            for quote in quotes
+            if quote["label"] in {"XTM", "wXTM"}
+        ]
+        affected = alert_quotes_for_direction(simulated, upward=upward)
+        text = format_group_alert_text(affected, upward=upward)
+        results.append(upsert_alert(
+            text,
+            color,
+            affected,
+            upward=upward,
+            test_label=test_label,
+            notify_everyone=True,
+        ))
+    return results
+
+
 def verify_fake_alert_progression() -> None:
     """Read back the final fake test alerts and assert one correct box per direction."""
     token = os.getenv("DISCORD_BOT_TOKEN")
@@ -686,7 +735,16 @@ def main() -> int:
         print("Test fictif sur quatre minutes : alertes marquées TEST, sans @everyone.", flush=True)
         run_fake_alert_progression()
         return 0
+    if os.getenv("TEST_ALERTS", "").strip().lower() == "positive_pair_once":
+        print("Simulation XTM +10.80 % / wXTM +13.84 % avec un ping @everyone, sans modifier les alertes réelles.", flush=True)
+        print(run_positive_pair_test())
+        return 0
     quotes = [get_quote(coin_id, label, preferred_market) for coin_id, label, preferred_market in COINS]
+    if os.getenv("TEST_ALERTS", "").strip().lower() == "both_once":
+        print("Tests vert/rouge simulés et étiquetés TEST; aucune alerte de production ne sera modifiée.", flush=True)
+        for result in run_both_alert_tests(quotes):
+            print(result)
+        return 0
     embed = build_embed(quotes)
     if "--dry-run" in sys.argv:
         print(json.dumps(embed, indent=2, ensure_ascii=False))
@@ -699,18 +757,6 @@ def main() -> int:
         return 0
     previous_changes: dict[str, float] = {}
     print(update_discord(embed, previous_changes=previous_changes))
-    if os.getenv("TEST_ALERTS", "").strip().lower() == "both_once":
-        print("Test manuel: envoi unique des alertes verte et rouge dans mog-post")
-        for upward, color in ((True, 5763719), (False, 15158332)):
-            simulated = [
-                {**quote, "change": ALERT_THRESHOLD_PERCENT if upward else -ALERT_THRESHOLD_PERCENT}
-                for quote in quotes
-                if quote["label"] in {"XTM", "wXTM"}
-            ]
-            affected = alert_quotes_for_direction(simulated, upward=upward)
-            text = format_group_alert_text(affected, upward=upward)
-            print(upsert_alert(text, color, affected, upward=upward, previous_changes=previous_changes))
-        return 0
     for upward, color in ((True, 5763719), (False, 15158332)):
         affected = alert_quotes_for_direction(quotes, upward=upward)
         if not affected:
