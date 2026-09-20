@@ -66,8 +66,8 @@ def test_previous_price_changes_are_parsed_from_the_live_price_embed():
     assert variation_trend_sign(3.5, 3.25) == "+"
     assert variation_trend_sign(-11.5, -12.5) == "+"
     assert variation_trend_sign(-13, -12.5) == "-"
-    assert variation_trend_sign(3.25, 3.25) == "="
-    assert variation_trend_sign(3.25, None) == "?"
+    assert variation_trend_sign(3.25, 3.25) == "~"
+    assert variation_trend_sign(3.25, None) == "~"
 
 
 def test_alert_thresholds_are_inclusive_for_both_assets():
@@ -140,7 +140,7 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
         affected,
         previous_changes={"wXTM": 18.8},
     )
-    assert trending_embed["title"] == "🔴- Alert wXTM+18.7%"
+    assert trending_embed["title"] == "🔴 - Alert wXTM+18.7%"
     assert "```" not in trending_embed["fields"][0]["value"]
     positive_trend_embed = build_alert_embed(
         "Alert wXTM+18.7%",
@@ -148,7 +148,14 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
         affected,
         previous_changes={"wXTM": 18.6},
     )
-    assert positive_trend_embed["title"] == "🟢+ Alert wXTM+18.7%"
+    assert positive_trend_embed["title"] == "🟢 + Alert wXTM+18.7%"
+    neutral_trend_embed = build_alert_embed(
+        "Alert wXTM+18.7%",
+        5763719,
+        affected,
+        previous_changes={"wXTM": 18.7},
+    )
+    assert neutral_trend_embed["title"] == "🟡 ~ Alert wXTM+18.7%"
     assert format_alert_text(-10, upward=False) == "Alert XTM-10%  GO BUY"
     assert format_alert_text(10, upward=True) == "Alert XTM+10%"
     assert format_alert_text(15.678, upward=True) == "Alert XTM+15.68%"

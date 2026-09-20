@@ -114,16 +114,16 @@ def format_change(value: float | None) -> str:
 
 def variation_trend_sign(current: float, previous: float | None) -> str:
     if previous is None:
-        return "?"
+        return "~"
     if current > previous:
         return "+"
     if current < previous:
         return "-"
-    return "="
+    return "~"
 
 
 def format_trend_prefix(sign: str) -> str:
-    return {"+": "🟢+", "-": "🔴-", "=": "⚪=", "?": "⚪?"}.get(sign, "⚪?")
+    return {"+": "🟢 +", "-": "🔴 -", "~": "🟡 ~"}.get(sign, "🟡 ~")
 
 
 def alert_trend_sign(
@@ -131,7 +131,7 @@ def alert_trend_sign(
 ) -> str:
     available = [quote for quote in quotes if quote.change_24h is not None]
     if not available:
-        return "?"
+        return "~"
     leading = max(available, key=lambda quote: abs(float(quote.change_24h)))
     return variation_trend_sign(
         float(leading.change_24h), previous_changes.get(leading.label)
@@ -139,7 +139,7 @@ def alert_trend_sign(
 
 
 def strip_trend_prefix(title: str) -> str:
-    for prefix in ("🟢+ ", "🔴- ", "⚪= ", "⚪? "):
+    for prefix in ("🟢 + ", "🔴 - ", "🟡 ~ ", "🟢+ ", "🔴- ", "⚪= ", "⚪? "):
         if title.startswith(prefix):
             return title[len(prefix):]
     return title
