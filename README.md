@@ -76,10 +76,12 @@ le workflow :
   Le seuil baissier reste fixé à `-10 %`. À la reprise, le réglage s'applique dès
   la prochaine exécution planifiée.
 
-Lors d'un lancement manuel via `Actions > Prix XTM planifiés > Run workflow`, les
-options `Surcharge ponctuelle des alertes` et `Seuil haussier ponctuel` peuvent
-toujours remplacer Tari tracker pour ce seul lancement. `inherit` reprend les
-réglages persistants du fichier, puis les variables Actions du dépôt en recours.
+Les réglages publiés par Tari tracker sont prioritaires pour chaque exécution,
+y compris les lancements manuels et les appels du planificateur externe. Les
+anciens champs de surcharge du workflow restent présents uniquement pour ne pas
+casser les planificateurs déjà configurés; ils ne peuvent pas remplacer les
+réglages persistants de Tari tracker. Chaque exécution affiche le seuil effectif
+et l'état pause dans son journal GitHub Actions.
 
 Pour reconstruire le fichier exécutable de Bureau, exécute
 `desktop_app/build.ps1` depuis PowerShell. Le script place `Tari tracker.exe` sur

@@ -179,8 +179,8 @@ class TariTrackerApp:
         self.status_var = tk.StringVar(value="Connexion au dépôt GitHub…")
 
         root.title("Tari tracker")
-        root.geometry("430x300")
-        root.minsize(400, 280)
+        root.geometry("430x360")
+        root.minsize(400, 340)
         root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self.close)
 
