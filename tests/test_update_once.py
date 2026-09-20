@@ -143,17 +143,17 @@ def test_group_alert_names_only_affected_assets_and_can_handle_both():
 def test_alert_embed_shows_change_since_previous_for_each_asset():
     quotes = [
         {"label": "XTM", "price": 0.001, "change": 12.75, "market": "MEXC", "error": None},
-        {"label": "wXTM", "price": 0.00243, "currency": "USD", "change": -17.75, "market": "Uniswap V4", "error": None},
+        {"label": "wXTM", "price": 0.00243, "currency": "USD", "change": 17.75, "market": "Uniswap V4", "error": None},
     ]
     embed = build_alert_embed(
-        "Alert XTM+12.75% | wXTM-17.75%  GO BUY",
+        "Alert XTM+12.75% | wXTM+17.75%",
         15158332,
         quotes,
-        previous_alert_changes={"XTM": 12.5, "wXTM": -17.5},
+        previous_alert_changes={"XTM": 12.5, "wXTM": 18.0},
     )
 
-    assert "Entre alertes : +0.25 pt (variation 24 h)" in embed["fields"][0]["value"]
-    assert "Entre alertes : -0.25 pt (variation 24 h)" in embed["fields"][1]["value"]
+    assert embed["title"] == "🟢 XTM +0.25% | wXTM -0.25% — Alert XTM+12.75% | wXTM+17.75%"
+    assert all("Entre alertes" not in field["value"] for field in embed["fields"])
 
 
 def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
@@ -173,7 +173,7 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
         affected,
         previous_changes={"wXTM": 18.8},
     )
-    assert trending_embed["title"] == "🔴 - Alert wXTM+18.7%"
+    assert trending_embed["title"] == "🔴 -0.10% — Alert wXTM+18.7%"
     assert "```" not in trending_embed["fields"][0]["value"]
     positive_trend_embed = build_alert_embed(
         "Alert wXTM+18.7%",
@@ -181,14 +181,14 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
         affected,
         previous_changes={"wXTM": 18.6},
     )
-    assert positive_trend_embed["title"] == "🟢 + Alert wXTM+18.7%"
+    assert positive_trend_embed["title"] == "🟢 +0.10% — Alert wXTM+18.7%"
     neutral_trend_embed = build_alert_embed(
         "Alert wXTM+18.7%",
         5763719,
         affected,
         previous_changes={"wXTM": 18.7},
     )
-    assert neutral_trend_embed["title"] == "🟡 ~ Alert wXTM+18.7%"
+    assert neutral_trend_embed["title"] == "🟡 ~0.00% — Alert wXTM+18.7%"
     assert format_alert_text(-10, upward=False) == "Alert XTM-10%  GO BUY"
     assert format_alert_text(10, upward=True) == "Alert XTM+10%"
     assert format_alert_text(15.678, upward=True) == "Alert XTM+15.68%"
@@ -378,9 +378,9 @@ def test_upsert_alert_reports_per_asset_change_from_previous_alert(monkeypatch):
         upward=True,
     )
 
-    fields = calls[2][2]["embeds"][0]["fields"]
-    assert "Entre alertes : +0.25 pt (variation 24 h)" in fields[0]["value"]
-    assert "Entre alertes : -0.25 pt (variation 24 h)" in fields[1]["value"]
+    title = calls[2][2]["embeds"][0]["title"]
+    assert title == "🟢 XTM +0.25% | wXTM -0.25% — Alert XTM+12.75% | wXTM+13.75%"
+    assert update_once._is_alert_title(title, upward=True, test_label=None)
 
 
 def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):

@@ -13,8 +13,10 @@ from main import (
     alert_changes_are_complete,
     alert_milestone,
     alert_quotes_for_direction,
+    calculate_alert_deltas,
     change_since_previous,
     extract_alert_changes,
+    format_alert_delta_title,
     extract_previous_price_changes,
     format_trend_prefix,
     format_change,
@@ -64,6 +66,15 @@ def test_change_since_previous_is_consistent_for_both_assets_and_directions():
     ]
     messages = [SimpleNamespace(embeds=[SimpleNamespace(fields=fields)])]
     assert extract_alert_changes(messages) == {"XTM": 12.75, "wXTM": -17.75}
+    deltas = calculate_alert_deltas(
+        {"XTM": 12.75, "wXTM": 16.7},
+        {"XTM": 12.55, "wXTM": 18.0},
+    )
+    title = format_alert_delta_title(
+        "Alert XTM+12.75% | wXTM+16.7%", deltas, asset_count=2
+    )
+    assert title == "🔴 XTM +0.20% | wXTM -1.30% — Alert XTM+12.75% | wXTM+16.7%"
+    assert is_alert_title(title, upward=True)
 
 
 def test_worker_alerts_include_only_affected_tokens_and_keep_one_direction_key():
@@ -81,6 +92,7 @@ def test_worker_alerts_include_only_affected_tokens_and_keep_one_direction_key()
     assert is_alert_title("Alert wXTM-10%  GO BUY", upward=False)
     assert is_alert_title("🟢+ Alert wXTM+10%", upward=True)
     assert is_alert_title("🔴- Alert wXTM-10%  GO BUY", upward=False)
+    assert is_alert_title("🟢 +0.20% — Alert wXTM+10%", upward=True)
     assert is_alert_title("🟡 ~ Alert wXTM-10%  GO BUY", upward=False)
     assert not is_alert_title("Alert wXTM-10%  GO BUY", upward=True)
     assert not is_alert_title("🟢+ Alert wXTM-10%  GO BUY", upward=True)

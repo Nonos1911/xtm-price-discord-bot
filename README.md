@@ -29,9 +29,8 @@ Le titre de l'alerte commence par un repère compact avant `Alert` : `🟢 +` si
 variation dominante a augmenté, `🔴 -` si elle a diminué et `🟡 ~` si elle est
 stable ou si aucun relevé antérieur n'est disponible. Le signe n'est plus
 répété dans les détails.
-Chaque actif affiche également l'écart, en points de pourcentage, entre sa
-variation 24 h actuelle et celle de l'alerte précédente. Le calcul est fait
-séparément et de la même manière pour XTM et wXTM.
+À côté du repère coloré du titre, l'alerte affiche l'écart entre la variation
+24 h actuelle et celle de l'alerte précédente, séparément pour XTM et wXTM.
 Les cours XTM et wXTM sont affichés avec exactement cinq chiffres après le
 point dans la box des cours.
 Les deux directions peuvent déclencher lors de la même exécution. Les

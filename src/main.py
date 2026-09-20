@@ -141,6 +141,10 @@ def alert_trend_sign(
 
 
 def strip_trend_prefix(title: str) -> str:
+    if title.startswith(("🟢", "🔴", "🟡")):
+        alert_start = title.find(ALERT_PREFIX, 1)
+        if alert_start >= 0:
+            return title[alert_start:]
     for prefix in ("🟢 + ", "🔴 - ", "🟡 ~ ", "🟢+ ", "🔴- ", "⚪= ", "⚪? "):
         if title.startswith(prefix):
             return title[len(prefix):]
@@ -175,6 +179,39 @@ def change_since_previous(current: float | None, previous: float | None) -> floa
     if current is None or previous is None:
         return None
     return current - previous
+
+
+def calculate_alert_deltas(
+    current_changes: dict[str, float],
+    previous_alert_changes: dict[str, float],
+    previous_changes: dict[str, float] | None = None,
+) -> dict[str, float]:
+    """Compare each alert's 24 h percentage with its previous alert or reading."""
+    deltas: dict[str, float] = {}
+    for label, current in current_changes.items():
+        previous = previous_alert_changes.get(label)
+        if previous is None and previous_changes is not None:
+            previous = previous_changes.get(label)
+        delta = change_since_previous(current, previous)
+        if delta is not None:
+            deltas[label] = delta
+    return deltas
+
+
+def format_alert_delta_title(
+    text: str, deltas: dict[str, float], *, asset_count: int
+) -> str:
+    """Show each asset's delta directly beside the color marker."""
+    if not deltas:
+        return text
+    dominant_delta = max(deltas.values(), key=abs)
+    marker = "🟢" if dominant_delta > 0 else "🔴" if dominant_delta < 0 else "🟡"
+    parts = []
+    for label, delta in deltas.items():
+        sign = "+" if delta > 0 else "-" if delta < 0 else "~"
+        value = f"{sign}{abs(delta):.2f}%"
+        parts.append(f"{label} {value}" if asset_count > 1 else value)
+    return f"{marker} {' | '.join(parts)} — {text}"
 
 
 def format_alert_text(change: float, *, upward: bool, threshold: float, label: str = "XTM") -> str:
@@ -472,8 +509,22 @@ class PriceBot(discord.Client):
         previous_alert_changes = extract_alert_changes(existing_messages)
 
         title = text
-        if previous_changes is not None:
-            title = f"{format_trend_prefix(alert_trend_sign(quotes, previous_changes))} {text}"
+        current_display_changes = {}
+        for quote in quotes:
+            if quote.change_24h is None:
+                continue
+            magnitude = min(300.0, max(self.alert_threshold, abs(quote.change_24h)))
+            current_display_changes[quote.label] = -magnitude if quote.change_24h < 0 else magnitude
+        deltas = calculate_alert_deltas(
+            current_display_changes, previous_alert_changes, previous_changes
+        )
+        if deltas:
+            title = format_alert_delta_title(
+                text, deltas, asset_count=len(current_display_changes)
+            )
+        elif previous_changes is not None or previous_alert_changes:
+            baseline = previous_changes or previous_alert_changes
+            title = f"{format_trend_prefix(alert_trend_sign(quotes, baseline))} {text}"
         alert_embed = discord.Embed(
             title=title,
             colour=colour,
@@ -488,10 +539,6 @@ class PriceBot(discord.Client):
                     magnitude = min(300.0, max(self.alert_threshold, abs(display_change)))
                     display_change = -magnitude if display_change < 0 else magnitude
                 value = f"**{format_price(quote.price, quote.currency, label=quote.label)}**\n{format_change(display_change)}"
-                previous = previous_alert_changes.get(quote.label)
-                delta = change_since_previous(display_change, previous)
-                if delta is not None:
-                    value += f"\nEntre alertes : {delta:+.2f} pt (variation 24 h)"
                 if quote.market:
                     value += f"\nMarché : {quote.market}"
             alert_embed.add_field(name=quote.label, value=value, inline=True)

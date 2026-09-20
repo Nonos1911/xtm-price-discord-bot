@@ -190,6 +190,39 @@ def change_since_previous(current: float | None, previous: float | None) -> floa
     return current - previous
 
 
+def calculate_alert_deltas(
+    current_changes: dict[str, float],
+    previous_alert_changes: dict[str, float],
+    previous_changes: dict[str, float] | None = None,
+) -> dict[str, float]:
+    """Compare each alert's 24 h percentage with its previous alert or reading."""
+    deltas: dict[str, float] = {}
+    for label, current in current_changes.items():
+        previous = previous_alert_changes.get(label)
+        if previous is None and previous_changes is not None:
+            previous = previous_changes.get(label)
+        delta = change_since_previous(current, previous)
+        if delta is not None:
+            deltas[label] = delta
+    return deltas
+
+
+def format_alert_delta_title(
+    text: str, deltas: dict[str, float], *, asset_count: int
+) -> str:
+    """Show each asset's delta directly beside its color marker."""
+    if not deltas:
+        return text
+    dominant_delta = max(deltas.values(), key=abs)
+    marker = "🟢" if dominant_delta > 0 else "🔴" if dominant_delta < 0 else "🟡"
+    parts = []
+    for label, delta in deltas.items():
+        sign = "+" if delta > 0 else "-" if delta < 0 else "~"
+        value = f"{sign}{abs(delta):.2f}%"
+        parts.append(f"{label} {value}" if asset_count > 1 else value)
+    return f"{marker} {' | '.join(parts)} — {text}"
+
+
 def variation_trend_sign(current: float, previous: float | None) -> str:
     if previous is None:
         return "~"
@@ -217,6 +250,10 @@ def alert_trend_sign(
 
 
 def strip_trend_prefix(title: str) -> str:
+    if title.startswith(("🟢", "🔴", "🟡")):
+        alert_start = title.find(ALERT_PREFIX, 1)
+        if alert_start >= 0:
+            return title[alert_start:]
     for prefix in ("🟢 + ", "🔴 - ", "🟡 ~ ", "🟢+ ", "🔴- ", "⚪= ", "⚪? "):
         if title.startswith(prefix):
             return title[len(prefix):]
@@ -303,29 +340,40 @@ def build_alert_embed(
     previous_changes: dict[str, float] | None = None,
     previous_alert_changes: dict[str, float] | None = None,
 ) -> dict[str, Any]:
-    display_title = text
-    if previous_changes is not None and not text.startswith("["):
-        display_title = f"{format_trend_prefix(alert_trend_sign(quotes or [], previous_changes))} {text}"
-    embed = {
-        "title": display_title,
-        "color": color,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    alert_quotes = []
     if quotes is not None:
-        alert_quotes = []
         for quote in quotes:
             if quote["change"] is not None:
                 magnitude = min(300.0, max(ALERT_THRESHOLD_PERCENT, abs(float(quote["change"]))))
                 bounded_change = -magnitude if float(quote["change"]) < 0 else magnitude
                 quote = {**quote, "change": bounded_change}
             alert_quotes.append(quote)
+    current_display_changes = {
+        str(quote["label"]): float(quote["change"])
+        for quote in alert_quotes
+        if quote.get("change") is not None
+    }
+    deltas = calculate_alert_deltas(
+        current_display_changes, previous_alert_changes or {}, previous_changes
+    )
+    display_title = text
+    if not text.startswith("["):
+        if deltas:
+            display_title = format_alert_delta_title(
+                text, deltas, asset_count=len(current_display_changes)
+            )
+        elif previous_changes is not None or previous_alert_changes:
+            baseline = previous_changes or previous_alert_changes or {}
+            display_title = f"{format_trend_prefix(alert_trend_sign(quotes or [], baseline))} {text}"
+    embed = {
+        "title": display_title,
+        "color": color,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    if quotes is not None:
         fields = []
         for quote in alert_quotes:
             value = price_text(quote)
-            previous = (previous_alert_changes or {}).get(str(quote["label"]))
-            delta = change_since_previous(quote.get("change"), previous)
-            if delta is not None:
-                value += f"\nEntre alertes : {delta:+.2f} pt (variation 24 h)"
             fields.append({"name": quote["label"], "value": value, "inline": True})
         embed["fields"] = fields
     if notified_milestone is not None:
