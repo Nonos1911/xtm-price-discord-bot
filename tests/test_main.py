@@ -3,7 +3,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from main import format_change, format_price, parse_coin_config, select_usdt_ticker
+from main import (
+    PriceQuote,
+    alert_quotes_for_direction,
+    format_change,
+    format_group_alert_text,
+    format_price,
+    is_alert_title,
+    parse_coin_config,
+    select_usdt_ticker,
+)
 
 
 def test_parse_coin_config():
@@ -26,3 +35,33 @@ def test_select_usdt_ticker_prefers_volume():
 def test_formatters():
     assert format_price(0.00123) == "0.00123 USDT"
     assert format_change(-2.5) == "-2.50 % sur 24 h"
+
+
+def test_worker_alerts_include_only_affected_tokens_and_keep_one_direction_key():
+    xtm = PriceQuote("minotari", "XTM", 0.001, 4.0, "MEXC", "MEXC", 1)
+    wxtm = PriceQuote("wrapped-minotari", "wXTM", 0.002, 17.19, "Gate", "Gate", 1)
+
+    upward = alert_quotes_for_direction([xtm, wxtm], upward=True, threshold=10)
+    downward = alert_quotes_for_direction([xtm, wxtm], upward=False, threshold=10)
+
+    assert [quote.label for quote in upward] == ["wXTM"]
+    assert format_group_alert_text(upward, upward=True, threshold=10) == "Alert wXTM+17.19%"
+    assert downward == []
+    assert is_alert_title("Alert wXTM+17.19%", upward=True)
+    assert is_alert_title("Alert XTM+10% | wXTM+17.19%", upward=True)
+    assert is_alert_title("Alert wXTM-10%  GO BUY", upward=False)
+    assert not is_alert_title("Alert wXTM-10%  GO BUY", upward=True)
+
+
+def test_worker_alerts_can_trigger_both_assets_and_both_directions_independently():
+    quotes = [
+        PriceQuote("minotari", "XTM", 0.001, 10.0, "MEXC", "MEXC", 1),
+        PriceQuote("wrapped-minotari", "wXTM", 0.002, -17.19, "Gate", "Gate", 1),
+    ]
+
+    rising = alert_quotes_for_direction(quotes, upward=True, threshold=10)
+    falling = alert_quotes_for_direction(quotes, upward=False, threshold=10)
+
+    assert [quote.label for quote in rising] == ["XTM"]
+    assert [quote.label for quote in falling] == ["wXTM"]
+    assert format_group_alert_text(falling, upward=False, threshold=10) == "Alert wXTM-17.19%  GO BUY"

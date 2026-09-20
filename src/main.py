@@ -22,8 +22,7 @@ from discord.ext import tasks
 
 
 LOGGER = logging.getLogger("xtm-price-bot")
-UP_ALERT_PREFIX = "Alert XTM+"
-BUY_ALERT_PREFIX = "Alert XTM-"
+ALERT_PREFIX = "Alert "
 
 
 def env_int(name: str, default: int) -> int:
@@ -104,12 +103,45 @@ def format_change(value: float | None) -> str:
     return f"{value:+.2f} % sur 24 h"
 
 
-def format_alert_text(change: float, *, upward: bool, threshold: float) -> str:
+def format_alert_text(change: float, *, upward: bool, threshold: float, label: str = "XTM") -> str:
     magnitude = min(300.0, max(threshold, abs(float(change))))
     percent = f"{magnitude:.2f}".rstrip("0").rstrip(".")
     if upward:
-        return f"{UP_ALERT_PREFIX}{percent}%"
-    return f"{BUY_ALERT_PREFIX}{percent}%  GO BUY"
+        return f"{ALERT_PREFIX}{label}+{percent}%"
+    return f"{ALERT_PREFIX}{label}-{percent}%  GO BUY"
+
+
+def alert_quotes_for_direction(
+    quotes: list["PriceQuote"], *, upward: bool, threshold: float
+) -> list["PriceQuote"]:
+    by_label = {quote.label: quote for quote in quotes}
+    affected: list[PriceQuote] = []
+    for label in ("XTM", "wXTM"):
+        quote = by_label.get(label)
+        if quote is None or quote.change_24h is None:
+            continue
+        triggered = quote.change_24h >= threshold if upward else quote.change_24h <= -threshold
+        if triggered:
+            affected.append(quote)
+    return affected
+
+
+def format_group_alert_text(
+    quotes: list["PriceQuote"], *, upward: bool, threshold: float
+) -> str:
+    components = [
+        format_alert_text(
+            quote.change_24h, upward=upward, threshold=threshold, label=quote.label
+        ).removeprefix(ALERT_PREFIX).removesuffix("  GO BUY")
+        for quote in quotes
+        if quote.change_24h is not None
+    ]
+    suffix = "  GO BUY" if not upward else ""
+    return f"{ALERT_PREFIX}{' | '.join(components)}{suffix}"
+
+
+def is_alert_title(title: str, *, upward: bool) -> bool:
+    return title.startswith(ALERT_PREFIX) and ("+" in title if upward else "-" in title)
 
 
 @dataclass(frozen=True)
@@ -209,7 +241,7 @@ class PriceBot(discord.Client):
         self.state_file = state_file
         self.interval_minutes = interval_minutes
         self.alert_threshold = alert_threshold
-        self.alert_task: asyncio.Task[None] | None = None
+        self.alert_tasks: dict[bool, asyncio.Task[None] | None] = {True: None, False: None}
         self.http_session: aiohttp.ClientSession | None = None
         self.price_client: CoinGeckoClient | None = None
         self._state: dict[str, Any] = self.load_state()
@@ -238,8 +270,9 @@ class PriceBot(discord.Client):
     async def close(self) -> None:
         if self.price_loop.is_running():
             self.price_loop.cancel()
-        if self.alert_task and not self.alert_task.done():
-            self.alert_task.cancel()
+        for task in self.alert_tasks.values():
+            if task and not task.done():
+                task.cancel()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
         await super().close()
@@ -278,7 +311,7 @@ class PriceBot(discord.Client):
                 value = f"Indisponible — {quote.error or 'aucun marché USDT'}"
             else:
                 display_change = quote.change_24h
-                if quote.label == "XTM" and display_change is not None:
+                if display_change is not None:
                     magnitude = min(300.0, max(self.alert_threshold, abs(display_change)))
                     display_change = -magnitude if display_change < 0 else magnitude
                 value = f"**{format_price(quote.price_usdt)}**\n{format_change(display_change)}"
@@ -286,7 +319,6 @@ class PriceBot(discord.Client):
                     value += f"\nMarché : {quote.market}"
             alert_embed.add_field(name=quote.label, value=value, inline=True)
 
-        prefix = UP_ALERT_PREFIX if upward else BUY_ALERT_PREFIX
         bot_id = self.user.id if self.user else None
         history = getattr(channel, "history", None)
         existing = None
@@ -294,7 +326,7 @@ class PriceBot(discord.Client):
             async for message in history(limit=100):
                 if message.author.id != bot_id:
                     continue
-                if any(embed.title and embed.title.startswith(prefix) for embed in message.embeds):
+                if any(embed.title and is_alert_title(embed.title, upward=upward) for embed in message.embeds):
                     existing = message
                     break
 
@@ -322,21 +354,22 @@ class PriceBot(discord.Client):
             LOGGER.info("Nouvelle alerte publiée : %s", text)
 
     def start_alert_if_needed(self, quotes: list[PriceQuote]) -> None:
-        xtm_quote = next((quote for quote in quotes if quote.label == "XTM"), None)
-        if not xtm_quote or xtm_quote.change_24h is None:
-            return
-        if xtm_quote.change_24h >= self.alert_threshold:
-            text = format_alert_text(xtm_quote.change_24h, upward=True, threshold=self.alert_threshold)
-            colour, upward = discord.Colour.green(), True
-        elif xtm_quote.change_24h <= -self.alert_threshold:
-            text = format_alert_text(xtm_quote.change_24h, upward=False, threshold=self.alert_threshold)
-            colour, upward = discord.Colour.red(), False
-        else:
-            LOGGER.info("Variation XTM sous le seuil de 10 %; alertes existantes laissées inchangées")
-            return
-        if self.alert_task is None or self.alert_task.done():
-            self.alert_task = asyncio.create_task(self.upsert_alert(text, colour, quotes, upward=upward))
-            LOGGER.warning("Alerte %s déclenchée à %.2f %% sur 24 h", text, xtm_quote.change_24h)
+        for upward, colour in ((True, discord.Colour.green()), (False, discord.Colour.red())):
+            affected = alert_quotes_for_direction(quotes, upward=upward, threshold=self.alert_threshold)
+            if not affected:
+                continue
+            text = format_group_alert_text(affected, upward=upward, threshold=self.alert_threshold)
+            task = self.alert_tasks[upward]
+            if task is None or task.done():
+                self.alert_tasks[upward] = asyncio.create_task(
+                    self.upsert_alert(text, colour, affected, upward=upward)
+                )
+                changes = ", ".join(
+                    f"{quote.label} {quote.change_24h:+.2f}%"
+                    for quote in affected
+                    if quote.change_24h is not None
+                )
+                LOGGER.warning("Alerte %s déclenchée sur 24 h (%s)", text, changes)
 
     async def publish_prices(self) -> None:
         if self.price_client is None:

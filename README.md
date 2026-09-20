@@ -9,15 +9,19 @@ Il maintient un seul embed dans le salon Discord `1370700962695610430` et le
 met à jour toutes les minutes. Les anciens embeds de cours sont nettoyés. Le service est
 conçu pour fonctionner dans un worker cloud, donc ton PC peut être éteint.
 
-Si la variation 24 h de XTM atteint `+10 %`, le bot crée une seule alerte verte
-dans `mog-post` (`1163364187796426776`). Tant que la variation reste à `+10 %`
-ou plus, il actualise ce même message avec le pourcentage courant, plafonné à
-`+300 %`. À `-10 %` ou moins, il fait de même avec une seule alerte rouge,
-affichant la variation de `-10 %` à `-300 %`. Si la variation repasse sous le
-seuil correspondant, le bot cesse d'actualiser l'alerte et la laisse telle
-quelle. Les modifications ne renvoient pas de nouvelle notification
-`@everyone`. Ce message est un signal automatique et ne constitue pas un conseil
-financier. Chaque embed d'alerte contient aussi les cours XTM/USDT et wXTM/USDT.
+Le bot surveille séparément les variations 24 h de `XTM` et `wXTM` fournies par
+CoinGecko. Si au moins l'un atteint `+10 %`, une alerte verte est créée ou mise
+à jour dans `mog-post` (`1163364187796426776`). Si au moins l'un atteint
+`-10 %`, une alerte rouge distincte est créée ou mise à jour. Chaque alerte ne
+nomme et n'affiche que les actifs qui ont franchi son seuil ; si les deux
+franchissent le même seuil, elle affiche les deux et leurs pourcentages/prix.
+Les deux directions peuvent déclencher lors de la même exécution. Les
+pourcentages affichés sont plafonnés à `+300 %` et `-300 %`. Quand un actif
+repasse sous le seuil, il disparaît de la prochaine mise à jour si un autre
+actif reste au-dessus ; si aucun ne le franchit, le message est laissé tel
+quel. `@everyone` ne notifie qu'à la création initiale de chaque alerte, pas
+aux éditions suivantes. Ce message est un signal automatique et ne constitue
+pas un conseil financier.
 
 Un cronjob dédié peut lancer le workflow avec `snapshot_only = true` toutes les
 4 heures. Dans ce mode, le bot publie une nouvelle embed ponctuelle dans

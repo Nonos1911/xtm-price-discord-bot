@@ -19,8 +19,7 @@ CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID", "1370700962695610430")
 ALERT_CHANNEL_ID = os.getenv("ALERT_CHANNEL_ID", "1163364187796426776")
 ALERT_THRESHOLD_PERCENT = float(os.getenv("ALERT_THRESHOLD_PERCENT", "10"))
 PRICE_EMBED_TITLE = "💱 Prix XTM / wXTM"
-ALERT_UP_PREFIX = "Alert XTM+"
-ALERT_DOWN_PREFIX = "Alert XTM-"
+ALERT_PREFIX = "Alert "
 COINS = [("minotari", "XTM", "MEXC"), ("wrapped-minotari", "wXTM", "Gate")]
 
 
@@ -201,7 +200,7 @@ def build_alert_embed(text: str, color: int, quotes: list[dict[str, Any]] | None
     if quotes is not None:
         alert_quotes = []
         for quote in quotes:
-            if quote["label"] == "XTM" and quote["change"] is not None:
+            if quote["change"] is not None:
                 magnitude = min(300.0, max(ALERT_THRESHOLD_PERCENT, abs(float(quote["change"]))))
                 bounded_change = -magnitude if float(quote["change"]) < 0 else magnitude
                 quote = {**quote, "change": bounded_change}
@@ -213,22 +212,51 @@ def build_alert_embed(text: str, color: int, quotes: list[dict[str, Any]] | None
     return embed
 
 
-def xtm_alert_triggered(quotes: list[dict[str, Any]]) -> bool:
-    xtm_quote = next((quote for quote in quotes if quote["label"] == "XTM"), None)
-    return bool(xtm_quote and xtm_quote["change"] is not None and xtm_quote["change"] >= ALERT_THRESHOLD_PERCENT)
+def alert_quotes_for_direction(quotes: list[dict[str, Any]], *, upward: bool) -> list[dict[str, Any]]:
+    """Return only XTM/wXTM quotes that currently meet the directional threshold."""
+    by_label = {quote.get("label"): quote for quote in quotes}
+    affected: list[dict[str, Any]] = []
+    for label in ("XTM", "wXTM"):
+        quote = by_label.get(label)
+        if quote is None or quote.get("change") is None:
+            continue
+        change = float(quote["change"])
+        triggered = change >= ALERT_THRESHOLD_PERCENT if upward else change <= -ALERT_THRESHOLD_PERCENT
+        if triggered:
+            affected.append(quote)
+    return affected
 
 
-def xtm_buy_alert_triggered(quotes: list[dict[str, Any]]) -> bool:
-    xtm_quote = next((quote for quote in quotes if quote["label"] == "XTM"), None)
-    return bool(xtm_quote and xtm_quote["change"] is not None and xtm_quote["change"] <= -ALERT_THRESHOLD_PERCENT)
-
-
-def format_alert_text(change: float, *, upward: bool) -> str:
+def format_alert_text(change: float, *, upward: bool, label: str = "XTM") -> str:
     magnitude = min(300.0, max(ALERT_THRESHOLD_PERCENT, abs(float(change))))
     percent = f"{magnitude:.2f}".rstrip("0").rstrip(".")
     if upward:
-        return f"{ALERT_UP_PREFIX}{percent}%"
-    return f"{ALERT_DOWN_PREFIX}{percent}%  GO BUY"
+        return f"{ALERT_PREFIX}{label}+{percent}%"
+    return f"{ALERT_PREFIX}{label}-{percent}%  GO BUY"
+
+
+def format_group_alert_text(quotes: list[dict[str, Any]], *, upward: bool) -> str:
+    """Build one alert title listing each asset that crossed the same threshold."""
+    components = [
+        format_alert_text(float(quote["change"]), upward=upward, label=str(quote["label"]))
+        .removeprefix(ALERT_PREFIX)
+        .removesuffix("  GO BUY")
+        for quote in quotes
+    ]
+    suffix = "  GO BUY" if not upward else ""
+    return f"{ALERT_PREFIX}{' | '.join(components)}{suffix}"
+
+
+def _is_alert_title(title: str, *, upward: bool, test_label: str | None) -> bool:
+    if test_label:
+        marker = f"{test_label} "
+        if not title.startswith(marker):
+            return False
+        title = title[len(marker):]
+    elif title.startswith("["):
+        # Do not let test alerts get reused as production alerts.
+        return False
+    return title.startswith(ALERT_PREFIX) and ("+" in title if upward else "-" in title)
 
 
 def upsert_alert(
@@ -253,18 +281,13 @@ def upsert_alert(
         f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages?limit=100",
         headers=headers,
     )
-    prefix = ALERT_UP_PREFIX if upward else ALERT_DOWN_PREFIX
-    identity = f"{test_label} {prefix}" if test_label else prefix
     matching = [
         message
         for message in messages
         if message.get("author", {}).get("id") == bot.get("id")
-        and (
-            str(message.get("content", "")).removeprefix("@everyone ").startswith(identity)
-            or any(
-                str(embed.get("title", "")).startswith(identity)
-                for embed in message.get("embeds", [])
-            )
+        and any(
+            _is_alert_title(str(embed.get("title", "")), upward=upward, test_label=test_label)
+            for embed in message.get("embeds", [])
         )
     ]
 
@@ -307,11 +330,12 @@ def run_fake_alert_progression() -> None:
                 {"label": "XTM", "price": fake_xtm_price, "change": change, "market": "MEXC (test)", "error": None},
                 {"label": "wXTM", "price": 0.0021, "change": 3.2, "market": "Gate (test)", "error": None},
             ]
-            text = format_alert_text(change, upward=upward)
+            affected = alert_quotes_for_direction(quotes, upward=upward)
+            text = format_group_alert_text(affected, upward=upward)
             result = upsert_alert(
                 text,
                 color,
-                quotes,
+                affected,
                 upward=upward,
                 test_label="[TEST FICTIF 4 MIN]",
                 notify_everyone=True,
@@ -384,18 +408,28 @@ def main() -> int:
     print(update_discord(embed))
     if os.getenv("TEST_ALERTS", "").strip().lower() == "both_once":
         print("Test manuel: envoi unique des alertes verte et rouge dans mog-post")
-        print(upsert_alert(format_alert_text(ALERT_THRESHOLD_PERCENT, upward=True), 5763719, quotes, upward=True))
-        print(upsert_alert(format_alert_text(-ALERT_THRESHOLD_PERCENT, upward=False), 15158332, quotes, upward=False))
+        for upward, color in ((True, 5763719), (False, 15158332)):
+            simulated = [
+                {**quote, "change": ALERT_THRESHOLD_PERCENT if upward else -ALERT_THRESHOLD_PERCENT}
+                for quote in quotes
+                if quote["label"] in {"XTM", "wXTM"}
+            ]
+            affected = alert_quotes_for_direction(simulated, upward=upward)
+            text = format_group_alert_text(affected, upward=upward)
+            print(upsert_alert(text, color, affected, upward=upward))
         return 0
-    xtm_quote = next(quote for quote in quotes if quote["label"] == "XTM")
-    if xtm_alert_triggered(quotes):
-        print(f"Variation XTM détectée: {xtm_quote['change']:.2f} %; lancement de l'alerte")
-        print(upsert_alert(format_alert_text(xtm_quote["change"], upward=True), 5763719, quotes, upward=True))
-    elif xtm_buy_alert_triggered(quotes):
-        print(f"Variation XTM détectée: {xtm_quote['change']:.2f} %; lancement de l'alerte achat")
-        print(upsert_alert(format_alert_text(xtm_quote["change"], upward=False), 15158332, quotes, upward=False))
-    else:
-        print("Variation XTM sous le seuil de 10 %; alertes existantes laissées inchangées")
+    triggered = False
+    for upward, color in ((True, 5763719), (False, 15158332)):
+        affected = alert_quotes_for_direction(quotes, upward=upward)
+        if not affected:
+            continue
+        triggered = True
+        text = format_group_alert_text(affected, upward=upward)
+        description = ", ".join(f"{quote['label']} {float(quote['change']):+.2f}%" for quote in affected)
+        print(f"Variation 24 h détectée ({description}); lancement de l'alerte")
+        print(upsert_alert(text, color, affected, upward=upward))
+    if not triggered:
+        print("XTM et wXTM sont sous les seuils de ±10 %; alertes existantes laissées inchangées")
     return 0
 
 

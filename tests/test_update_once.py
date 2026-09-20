@@ -4,7 +4,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 import update_once
-from update_once import build_alert_embed, build_embed, build_price_embed, format_alert_text, price_text, select_usdt_ticker, xtm_alert_triggered, xtm_buy_alert_triggered
+from update_once import (
+    alert_quotes_for_direction,
+    build_alert_embed,
+    build_embed,
+    build_price_embed,
+    format_alert_text,
+    format_group_alert_text,
+    price_text,
+    select_usdt_ticker,
+)
 
 
 def test_select_usdt_ticker():
@@ -27,12 +36,56 @@ def test_embed_has_both_assets():
     assert build_price_embed([], "Snapshot du prix toutes les 4 heures")["footer"]["text"] == "Snapshot du prix toutes les 4 heures"
 
 
-def test_xtm_alert_is_positive_and_inclusive():
-    assert not xtm_alert_triggered([{"label": "XTM", "change": 9.99}])
-    assert xtm_alert_triggered([{"label": "XTM", "change": 10.0}])
-    assert not xtm_alert_triggered([{"label": "XTM", "change": -12.0}])
-    assert xtm_buy_alert_triggered([{"label": "XTM", "change": -10.0}])
-    assert not xtm_buy_alert_triggered([{"label": "XTM", "change": -9.99}])
+def test_alert_thresholds_are_inclusive_for_both_assets():
+    quotes = [
+        {"label": "XTM", "change": 9.99},
+        {"label": "wXTM", "change": 17.19},
+    ]
+    assert [quote["label"] for quote in alert_quotes_for_direction(quotes, upward=True)] == ["wXTM"]
+    assert alert_quotes_for_direction(quotes, upward=False) == []
+    quotes = [
+        {"label": "XTM", "change": -10.0},
+        {"label": "wXTM", "change": -9.99},
+    ]
+    assert [quote["label"] for quote in alert_quotes_for_direction(quotes, upward=False)] == ["XTM"]
+    assert alert_quotes_for_direction([{"label": "XTM", "change": 10.0}], upward=True)
+    assert alert_quotes_for_direction([{"label": "wXTM", "change": -10.0}], upward=False)
+    assert alert_quotes_for_direction([{"label": "unknown", "change": 500}], upward=True) == []
+
+
+def test_group_alert_names_only_affected_assets_and_can_handle_both():
+    one = [{"label": "wXTM", "change": 17.19}]
+    both = [
+        {"label": "XTM", "change": 10.0},
+        {"label": "wXTM", "change": 17.19},
+    ]
+    assert format_group_alert_text(one, upward=True) == "Alert wXTM+17.19%"
+    assert format_group_alert_text(both, upward=True) == "Alert XTM+10% | wXTM+17.19%"
+    assert format_group_alert_text(
+        [{"label": "wXTM", "change": -17.19}], upward=False
+    ) == "Alert wXTM-17.19%  GO BUY"
+    embed = build_alert_embed(
+        format_group_alert_text(both, upward=True),
+        5763719,
+        [
+            {"label": "XTM", "price": 0.001, "change": 10.0, "market": "MEXC", "error": None},
+            {"label": "wXTM", "price": 0.002, "change": 17.19, "market": "Gate", "error": None},
+        ],
+    )
+    assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
+
+
+def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
+    quotes = [
+        {"label": "XTM", "price": 0.0022, "change": 7.54, "market": "MEXC", "error": None},
+        {"label": "wXTM", "price": 0.002428, "change": 18.70, "market": "Gate", "error": None},
+    ]
+    affected = alert_quotes_for_direction(quotes, upward=True)
+    embed = build_alert_embed(format_group_alert_text(affected, upward=True), 5763719, affected)
+
+    assert embed["title"] == "Alert wXTM+18.7%"
+    assert [field["name"] for field in embed["fields"]] == ["wXTM"]
+    assert "0.002428 USDT" in embed["fields"][0]["value"]
     assert format_alert_text(-10, upward=False) == "Alert XTM-10%  GO BUY"
     assert format_alert_text(10, upward=True) == "Alert XTM+10%"
     assert format_alert_text(15.678, upward=True) == "Alert XTM+15.68%"
@@ -57,6 +110,12 @@ def test_xtm_alert_is_positive_and_inclusive():
         [{"label": "XTM", "price": 0.001, "change": -450.0, "market": "MEXC", "error": None}],
     )
     assert "-300.00 % sur 24 h" in capped_embed["fields"][0]["value"]
+    wxtm_capped = build_alert_embed(
+        "Alert wXTM-300%  GO BUY",
+        15158332,
+        [{"label": "wXTM", "price": 0.002, "change": -450.0, "market": "Gate", "error": None}],
+    )
+    assert "-300.00 % sur 24 h" in wxtm_capped["fields"][0]["value"]
 
 
 def test_update_discord_reuses_one_price_message_and_removes_duplicates(monkeypatch):
@@ -101,13 +160,13 @@ def test_upsert_alert_edits_same_message_without_pinging_again(monkeypatch):
         return next(responses)
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
-    result = update_once.upsert_alert("Alert XTM+12.5%", 5763719, [], upward=True)
+    result = update_once.upsert_alert("Alert wXTM+12.5%", 5763719, [], upward=True)
 
-    assert result == "alerte Alert XTM+12.5% mise à jour dans le message alert-message"
+    assert result == "alerte Alert wXTM+12.5% mise à jour dans le message alert-message"
     assert calls[2][1] == "PATCH"
-    assert calls[2][2]["content"] == "@everyone Alert XTM+12.5%"
+    assert calls[2][2]["content"] == "@everyone Alert wXTM+12.5%"
     assert calls[2][2]["allowed_mentions"] == {"parse": []}
-    assert calls[2][2]["embeds"][0]["title"] == "Alert XTM+12.5%"
+    assert calls[2][2]["embeds"][0]["title"] == "Alert wXTM+12.5%"
 
 
 def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
