@@ -53,6 +53,7 @@ def test_embed_has_both_assets():
     ])
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
     assert "USDT" in price_text({"price": 0.001, "change": 1.5, "market": "MEXC", "error": None})
+    assert "0.00123 USDT" in price_text({"label": "XTM", "price": 0.00123456, "currency": "USDT", "change": 1.5, "market": "MEXC", "error": None})
     assert "0.00243 USDT" in price_text({"label": "wXTM", "price": 0.002428, "currency": "USD", "change": 1.5, "market": "Uniswap", "error": None})
     assert embed["footer"]["text"] == "Mise à jour toutes les minutes"
     assert build_price_embed([], "Snapshot du prix toutes les 4 heures")["footer"]["text"] == "Snapshot du prix toutes les 4 heures"
@@ -204,7 +205,7 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
     )
     assert embed["color"] == 15158332
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
-    assert "0.001 USDT" in embed["fields"][0]["value"]
+    assert "0.00100 USDT" in embed["fields"][0]["value"]
     assert "0.00200 USDT" in embed["fields"][1]["value"]
     capped_embed = build_alert_embed(
         "Alert XTM-300%  GO BUY",

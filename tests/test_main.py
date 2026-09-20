@@ -49,6 +49,7 @@ def test_select_usdt_ticker_prefers_volume():
 def test_formatters():
     assert format_price(0.00123) == "0.00123 USDT"
     assert format_price(0.00123, "USD") == "0.00123 USD"
+    assert format_price(0.00123456, label="XTM") == "0.00123 USDT"
     assert format_price(0.002428, "USD", label="wXTM") == "0.00243 USDT"
     assert format_change(-2.5) == "-2.50 % sur 24 h"
 

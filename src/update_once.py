@@ -142,10 +142,11 @@ def price_text(quote: dict[str, Any]) -> str:
     if quote["price"] is None:
         return f"Indisponible — {quote['error']}"
     price = quote["price"]
-    is_wxtm = quote.get("label") == "wXTM"
+    label = quote.get("label")
+    is_wxtm = label == "wXTM"
     formatted = (
         f"{price:.5f}"
-        if is_wxtm
+        if is_wxtm or label == "XTM"
         else f"{price:,.4f}".replace(",", " ") if price >= 1
         else f"{price:.10f}".rstrip("0").rstrip(".")
     )

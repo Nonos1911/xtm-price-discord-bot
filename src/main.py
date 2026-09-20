@@ -101,6 +101,8 @@ def format_price(value: float | None, currency: str = "USDT", *, label: str | No
         return "indisponible"
     if label == "wXTM":
         return f"{value:.5f} USDT"
+    if label == "XTM":
+        return f"{value:.5f} {currency}"
     if value >= 1:
         return f"{value:,.4f} {currency}".replace(",", " ")
     return f"{value:.10f}".rstrip("0").rstrip(".") + f" {currency}"
