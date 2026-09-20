@@ -58,22 +58,32 @@ Un cronjob dédié peut lancer le workflow avec `snapshot_only = true` toutes le
 
 ### Régler ou mettre en pause les alertes
 
-Dans GitHub, ouvre `Settings > Secrets and variables > Actions > Variables` et
-crée/modifie les variables suivantes pour qu'elles s'appliquent à toutes les
-exécutions planifiées :
+Pour la variante GitHub Actions, l'application Windows **Tari tracker** permet
+de commander ces réglages depuis le Bureau. Quand tu cliques sur « Enregistrer »,
+elle synchronise uniquement `alert_settings.json` avec la branche `main`; la
+prochaine exécution cloud applique le nouveau réglage. Elle utilise
+l'authentification Git déjà configurée sur Windows (Git Credential Manager), sans
+demander ni enregistrer le token du bot.
 
-- `ALERTS_PAUSED` : `true` met en pause les alertes vertes/rouges de `mog-post` ;
+Le fichier `alert_settings.json` contient les réglages persistants utilisés par
+le workflow :
+
+- `paused` : `true` met en pause les alertes vertes/rouges de `mog-post` ;
   `false` les réactive. La box des cours continue d'être actualisée et les alertes
   déjà affichées sont conservées pendant la pause. Les snapshots ponctuels du prix
   ne sont pas des alertes et restent indépendants.
-- `ALERT_THRESHOLD_PERCENT` : `10`, `20`, `30` ou `40` définit le seuil haussier.
+- `upward_threshold_percent` : `10`, `20`, `30` ou `40` définit le seuil haussier.
   Le seuil baissier reste fixé à `-10 %`. À la reprise, le réglage s'applique dès
   la prochaine exécution planifiée.
 
 Lors d'un lancement manuel via `Actions > Prix XTM planifiés > Run workflow`, les
-options `Surcharge ponctuelle des alertes` et `Seuil haussier ponctuel` permettent
-de suspendre/réactiver ou changer le seuil pour ce seul lancement. L'option
-`inherit` applique les variables persistantes du dépôt.
+options `Surcharge ponctuelle des alertes` et `Seuil haussier ponctuel` peuvent
+toujours remplacer Tari tracker pour ce seul lancement. `inherit` reprend les
+réglages persistants du fichier, puis les variables Actions du dépôt en recours.
+
+Pour reconstruire le fichier exécutable de Bureau, exécute
+`desktop_app/build.ps1` depuis PowerShell. Le script place `Tari tracker.exe` sur
+le Bureau.
 
 ## Discord
 
@@ -121,13 +131,10 @@ Pour l'utiliser :
    (le dossier `.github` doit être à la racine du dépôt).
 2. Dans `Settings > Secrets and variables > Actions`, ajoute le secret
    `DISCORD_BOT_TOKEN`.
-3. Dans l'onglet `Variables` au même endroit, règle si souhaité
-   `ALERTS_PAUSED=false` et `ALERT_THRESHOLD_PERCENT=10` (10 par défaut même si
-   les variables ne sont pas créées).
-4. Ajoute éventuellement `COINGECKO_API_KEY` comme second secret, si tu en as
+3. Ajoute éventuellement `COINGECKO_API_KEY` comme second secret, si tu en as
    une ; le service fonctionne aussi avec l'API publique dans la limite de ses
    quotas.
-5. Dans l'onglet `Actions`, lance `Mettre à jour les cours XTM` une première
+4. Dans l'onglet `Actions`, lance `Mettre à jour les cours XTM` une première
    fois avec `Run workflow` pour tester immédiatement.
 
 Pour tester ponctuellement les deux alertes dans `mog-post` sans attendre une

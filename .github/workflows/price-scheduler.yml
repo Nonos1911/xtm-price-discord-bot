@@ -56,13 +56,17 @@ jobs:
       - name: Récupérer le projet
         uses: actions/checkout@v5
 
+      - name: Charger les réglages Tari tracker
+        id: tari-settings
+        run: python src/workflow_settings.py
+
       - name: Mettre à jour Discord
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_CHANNEL_ID: "1370700962695610430"
           ALERT_CHANNEL_ID: "1163364187796426776"
-          ALERT_THRESHOLD_PERCENT: ${{ inputs.upward_threshold_override != 'inherit' && inputs.upward_threshold_override || vars.ALERT_THRESHOLD_PERCENT || '10' }}
-          ALERTS_PAUSED: ${{ inputs.alerts_override == 'pause' && 'true' || inputs.alerts_override == 'resume' && 'false' || vars.ALERTS_PAUSED || 'false' }}
+          ALERT_THRESHOLD_PERCENT: ${{ inputs.upward_threshold_override != 'inherit' && inputs.upward_threshold_override || steps.tari-settings.outputs.threshold || vars.ALERT_THRESHOLD_PERCENT || '10' }}
+          ALERTS_PAUSED: ${{ inputs.alerts_override == 'pause' && 'true' || inputs.alerts_override == 'resume' && 'false' || steps.tari-settings.outputs.paused || vars.ALERTS_PAUSED || 'false' }}
           TEST_ALERTS: ${{ inputs.test_alerts || 'none' }}
           SNAPSHOT_ONLY: ${{ inputs.snapshot_only || 'false' }}
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
