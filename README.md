@@ -32,8 +32,8 @@ Une variation arrondie à zéro s'affiche comme `🟡 ~ 0.00%`. Ce format est
 identique pour XTM et wXTM.
 À côté du repère coloré, l'alerte affiche aussi l'écart entre la variation
 24 h actuelle et celle de l'alerte précédente, séparément pour les deux actifs.
-Les signes du pourcentage d'alerte restent accolés au nom de l'actif
-(`XTM+10%`, `XTM-10%`).
+Le pourcentage d'alerte est séparé du nom de l'actif par une espace
+(`XTM +10%`, `wXTM -13.84%`).
 Les cours XTM et wXTM sont affichés avec exactement cinq chiffres après le
 point dans la box des cours.
 Les deux directions peuvent déclencher lors de la même exécution. Les

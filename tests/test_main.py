@@ -71,29 +71,29 @@ def test_change_since_previous_is_consistent_for_both_assets_and_directions():
         {"XTM": 12.55, "wXTM": 18.0},
     )
     title = format_alert_delta_title(
-        "Alerte XTM+12.75% | wXTM+16.7%", deltas, asset_count=2
+        "Alerte XTM +12.75% | wXTM +16.7%", deltas, asset_count=2
     )
-    assert title == "🔴 - 1.30% (wXTM) | XTM + 0.20% — Alerte XTM+12.75% | wXTM+16.7%"
+    assert title == "🔴 - 1.30% (wXTM) | XTM + 0.20% — Alerte XTM +12.75% | wXTM +16.7%"
     assert is_alert_title(title, upward=True)
     assert format_alert_delta_title(
-        "Alerte wXTM+18.7%", {"wXTM": -0.001}, asset_count=1
-    ) == "🟡 ~ 0.00% — Alerte wXTM+18.7%"
+        "Alerte wXTM +18.7%", {"wXTM": -0.001}, asset_count=1
+    ) == "🟡 ~ 0.00% — Alerte wXTM +18.7%"
     assert format_alert_delta_title(
-        "Alerte XTM+12% | wXTM+18%",
+        "Alerte XTM +12% | wXTM +18%",
         {"XTM": 0.25, "wXTM": -0.001},
         asset_count=2,
-    ) == "🟢 + 0.25% (XTM) | wXTM ~ 0.00% — Alerte XTM+12% | wXTM+18%"
+    ) == "🟢 + 0.25% (XTM) | wXTM ~ 0.00% — Alerte XTM +12% | wXTM +18%"
     assert is_alert_title("Alert wXTM+16.67%", upward=True)
 
 
 def test_xtm_and_wxtm_delta_titles_have_identical_formatting():
     for label in ("XTM", "wXTM"):
         assert format_alert_delta_title(
-            f"Alerte {label}+10%", {label: 0.2}, asset_count=1
-        ) == f"🟢 + 0.20% — Alerte {label}+10%"
+            f"Alerte {label} +10%", {label: 0.2}, asset_count=1
+        ) == f"🟢 + 0.20% — Alerte {label} +10%"
         assert format_alert_delta_title(
-            f"Alerte {label}-10%  GO BUY", {label: -1.3}, asset_count=1
-        ) == f"🔴 - 1.30% — Alerte {label}-10%  GO BUY"
+            f"Alerte {label} -10%  GO BUY", {label: -1.3}, asset_count=1
+        ) == f"🔴 - 1.30% — Alerte {label} -10%  GO BUY"
 
 
 def test_worker_alerts_include_only_affected_tokens_and_keep_one_direction_key():
@@ -104,9 +104,9 @@ def test_worker_alerts_include_only_affected_tokens_and_keep_one_direction_key()
     downward = alert_quotes_for_direction([xtm, wxtm], upward=False, threshold=10)
 
     assert [quote.label for quote in upward] == ["wXTM"]
-    assert format_group_alert_text(upward, upward=True, threshold=10) == "Alerte wXTM+17.19%"
+    assert format_group_alert_text(upward, upward=True, threshold=10) == "Alerte wXTM +17.19%"
     assert downward == []
-    assert is_alert_title("Alerte wXTM+ 17.19%", upward=True)
+    assert is_alert_title("Alerte wXTM +17.19%", upward=True)
     assert is_alert_title("Alerte XTM+ 10% | wXTM+ 17.19%", upward=True)
     assert is_alert_title("Alerte wXTM- 10%  GO BUY", upward=False)
     assert is_alert_title("🟢+ Alerte wXTM+ 10%", upward=True)
@@ -155,7 +155,7 @@ def test_worker_alerts_can_trigger_both_assets_and_both_directions_independently
 
     assert [quote.label for quote in rising] == ["XTM"]
     assert [quote.label for quote in falling] == ["wXTM"]
-    assert format_group_alert_text(falling, upward=False, threshold=10) == "Alerte wXTM-17.19%  GO BUY"
+    assert format_group_alert_text(falling, upward=False, threshold=10) == "Alerte wXTM -17.19%  GO BUY"
 
 
 def test_worker_everyone_notifications_follow_ten_percent_steps():
@@ -171,9 +171,14 @@ def test_worker_everyone_notifications_follow_ten_percent_steps():
 
     legacy = SimpleNamespace(
         mention_everyone=True,
-        embeds=[SimpleNamespace(footer=SimpleNamespace(text=None), title="Alerte wXTM+ 29.99%")],
+        embeds=[SimpleNamespace(footer=SimpleNamespace(text=None), title="Alert wXTM+29.99%")],
     )
     assert message_notified_milestone(legacy, upward=True) == 20
+    current = SimpleNamespace(
+        mention_everyone=True,
+        embeds=[SimpleNamespace(footer=SimpleNamespace(text=None), title="Alerte wXTM +29.99%")],
+    )
+    assert message_notified_milestone(current, upward=True) == 20
 
 
 def test_wxtm_quote_uses_configured_uniswap_pool():

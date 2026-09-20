@@ -27,7 +27,7 @@ ALERT_PREFIX = "Alerte "
 LEGACY_ALERT_PREFIX = "Alert "
 ALERT_PREFIXES = (ALERT_PREFIX, LEGACY_ALERT_PREFIX)
 ALERT_MILESTONE_FOOTER = "Palier @everyone notifié : "
-ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)([+-])\s*(\d+(?:\.\d+)?)%")
+ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)\s*([+-])\s*(\d+(?:\.\d+)?)%")
 PRICE_CHANGE_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)\s*%\s*sur 24 h", re.IGNORECASE)
 COINS = [("minotari", "XTM", "MEXC"), ("wrapped-minotari", "wXTM", "Uniswap V4")]
 
@@ -431,8 +431,8 @@ def format_alert_text(change: float, *, upward: bool, label: str = "XTM") -> str
     magnitude = min(300.0, max(ALERT_THRESHOLD_PERCENT, abs(float(change))))
     percent = f"{magnitude:.2f}".rstrip("0").rstrip(".")
     if upward:
-        return f"{ALERT_PREFIX}{label}+{percent}%"
-    return f"{ALERT_PREFIX}{label}-{percent}%  GO BUY"
+        return f"{ALERT_PREFIX}{label} +{percent}%"
+    return f"{ALERT_PREFIX}{label} -{percent}%  GO BUY"
 
 
 def format_group_alert_text(quotes: list[dict[str, Any]], *, upward: bool) -> str:
@@ -650,8 +650,8 @@ def verify_fake_alert_progression() -> None:
         headers=headers,
     )
     expected = [
-        ("Alerte XTM+300%", 5763719, "0.004 USDT"),
-        ("Alerte XTM-300%  GO BUY", 15158332, "0 USDT"),
+        ("Alerte XTM +300%", 5763719, "0.004 USDT"),
+        ("Alerte XTM -300%  GO BUY", 15158332, "0 USDT"),
     ]
     for expected_title, expected_color, expected_price in expected:
         title = f"[TEST FICTIF 4 MIN] {expected_title}"

@@ -124,11 +124,11 @@ def test_group_alert_names_only_affected_assets_and_can_handle_both():
         {"label": "XTM", "change": 10.0},
         {"label": "wXTM", "change": 17.19},
     ]
-    assert format_group_alert_text(one, upward=True) == "Alerte wXTM+17.19%"
-    assert format_group_alert_text(both, upward=True) == "Alerte XTM+10% | wXTM+17.19%"
+    assert format_group_alert_text(one, upward=True) == "Alerte wXTM +17.19%"
+    assert format_group_alert_text(both, upward=True) == "Alerte XTM +10% | wXTM +17.19%"
     assert format_group_alert_text(
         [{"label": "wXTM", "change": -17.19}], upward=False
-    ) == "Alerte wXTM-17.19%  GO BUY"
+    ) == "Alerte wXTM -17.19%  GO BUY"
     embed = build_alert_embed(
         format_group_alert_text(both, upward=True),
         5763719,
@@ -138,7 +138,7 @@ def test_group_alert_names_only_affected_assets_and_can_handle_both():
         ],
     )
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
-    assert embed["title"] == "Alerte XTM+10% | wXTM+17.19%"
+    assert embed["title"] == "Alerte XTM +10% | wXTM +17.19%"
     assert "description" not in embed
 
 
@@ -148,23 +148,23 @@ def test_alert_embed_shows_change_since_previous_for_each_asset():
         {"label": "wXTM", "price": 0.00243, "currency": "USD", "change": 17.75, "market": "Uniswap V4", "error": None},
     ]
     embed = build_alert_embed(
-        "Alerte XTM+12.75% | wXTM+17.75%",
+        "Alerte XTM +12.75% | wXTM +17.75%",
         15158332,
         quotes,
         previous_alert_changes={"XTM": 12.5, "wXTM": 18.0},
     )
 
-    assert embed["title"] == "🟢 + 0.25% (XTM) | wXTM - 0.25% — Alerte XTM+12.75% | wXTM+17.75%"
+    assert embed["title"] == "🟢 + 0.25% (XTM) | wXTM - 0.25% — Alerte XTM +12.75% | wXTM +17.75%"
     assert all("Entre alertes" not in field["value"] for field in embed["fields"])
 
 
 def test_live_bot_and_scheduler_format_xtm_and_wxtm_alerts_identically():
     cases = [
-        ("Alerte XTM+10%", {"XTM": 0.2}, 1),
-        ("Alerte XTM-10%  GO BUY", {"XTM": -1.3}, 1),
-        ("Alerte wXTM+10%", {"wXTM": 0.2}, 1),
-        ("Alerte wXTM-10%  GO BUY", {"wXTM": -1.3}, 1),
-        ("Alerte XTM+10% | wXTM+17.19%", {"XTM": 0.2, "wXTM": -1.3}, 2),
+        ("Alerte XTM +10%", {"XTM": 0.2}, 1),
+        ("Alerte XTM -10%  GO BUY", {"XTM": -1.3}, 1),
+        ("Alerte wXTM +10%", {"wXTM": 0.2}, 1),
+        ("Alerte wXTM -10%  GO BUY", {"wXTM": -1.3}, 1),
+        ("Alerte XTM +10% | wXTM +17.19%", {"XTM": 0.2, "wXTM": -1.3}, 2),
     ]
     for text, deltas, asset_count in cases:
         scheduled = format_alert_delta_title(text, deltas, asset_count=asset_count)
@@ -173,6 +173,9 @@ def test_live_bot_and_scheduler_format_xtm_and_wxtm_alerts_identically():
 
     assert update_once._is_alert_title(
         "🟢 + 0.25% — Alert XTM+10%", upward=True, test_label=None
+    )
+    assert update_once._is_alert_title(
+        "Alerte wXTM +13.84%", upward=True, test_label=None
     )
 
 
@@ -184,40 +187,40 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
     affected = alert_quotes_for_direction(quotes, upward=True)
     embed = build_alert_embed(format_group_alert_text(affected, upward=True), 5763719, affected)
 
-    assert embed["title"] == "Alerte wXTM+18.7%"
+    assert embed["title"] == "Alerte wXTM +18.7%"
     assert [field["name"] for field in embed["fields"]] == ["wXTM"]
     assert "0.00243 USDT" in embed["fields"][0]["value"]
     trending_embed = build_alert_embed(
-        "Alerte wXTM+18.7%",
+        "Alerte wXTM +18.7%",
         5763719,
         affected,
         previous_changes={"wXTM": 18.8},
     )
-    assert trending_embed["title"] == "🔴 - 0.10% — Alerte wXTM+18.7%"
+    assert trending_embed["title"] == "🔴 - 0.10% — Alerte wXTM +18.7%"
     assert "```" not in trending_embed["fields"][0]["value"]
     positive_trend_embed = build_alert_embed(
-        "Alerte wXTM+18.7%",
+        "Alerte wXTM +18.7%",
         5763719,
         affected,
         previous_changes={"wXTM": 18.6},
     )
-    assert positive_trend_embed["title"] == "🟢 + 0.10% — Alerte wXTM+18.7%"
+    assert positive_trend_embed["title"] == "🟢 + 0.10% — Alerte wXTM +18.7%"
     neutral_trend_embed = build_alert_embed(
-        "Alerte wXTM+18.7%",
+        "Alerte wXTM +18.7%",
         5763719,
         affected,
         previous_changes={"wXTM": 18.7},
     )
-    assert neutral_trend_embed["title"] == "🟡 ~ 0.00% — Alerte wXTM+18.7%"
+    assert neutral_trend_embed["title"] == "🟡 ~ 0.00% — Alerte wXTM +18.7%"
     assert format_alert_delta_title(
-        "Alerte wXTM+18.7%", {"wXTM": -0.001}, asset_count=1
-    ) == "🟡 ~ 0.00% — Alerte wXTM+18.7%"
-    assert format_alert_text(-10, upward=False) == "Alerte XTM-10%  GO BUY"
-    assert format_alert_text(10, upward=True) == "Alerte XTM+10%"
-    assert format_alert_text(15.678, upward=True) == "Alerte XTM+15.68%"
-    assert format_alert_text(-15.678, upward=False) == "Alerte XTM-15.68%  GO BUY"
-    assert format_alert_text(450, upward=True) == "Alerte XTM+300%"
-    assert format_alert_text(-450, upward=False) == "Alerte XTM-300%  GO BUY"
+        "Alerte wXTM +18.7%", {"wXTM": -0.001}, asset_count=1
+    ) == "🟡 ~ 0.00% — Alerte wXTM +18.7%"
+    assert format_alert_text(-10, upward=False) == "Alerte XTM -10%  GO BUY"
+    assert format_alert_text(10, upward=True) == "Alerte XTM +10%"
+    assert format_alert_text(15.678, upward=True) == "Alerte XTM +15.68%"
+    assert format_alert_text(-15.678, upward=False) == "Alerte XTM -15.68%  GO BUY"
+    assert format_alert_text(450, upward=True) == "Alerte XTM +300%"
+    assert format_alert_text(-450, upward=False) == "Alerte XTM -300%  GO BUY"
     embed = build_alert_embed(
         format_alert_text(-10, upward=False),
         15158332,
@@ -231,13 +234,13 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
     assert "0.00100 USDT" in embed["fields"][0]["value"]
     assert "0.00200 USDT" in embed["fields"][1]["value"]
     capped_embed = build_alert_embed(
-        "Alerte XTM- 300%  GO BUY",
+        "Alerte XTM -300%  GO BUY",
         15158332,
         [{"label": "XTM", "price": 0.001, "change": -450.0, "market": "MEXC", "error": None}],
     )
     assert "-300.00 % sur 24 h" in capped_embed["fields"][0]["value"]
     wxtm_capped = build_alert_embed(
-        "Alerte wXTM- 300%  GO BUY",
+        "Alerte wXTM -300%  GO BUY",
         15158332,
         [{"label": "wXTM", "price": 0.002, "currency": "USD", "change": -450.0, "market": "Uniswap V4 (Ethereum)", "error": None}],
     )
@@ -350,7 +353,7 @@ def test_upsert_alert_replaces_previous_message_without_repinging_same_ten_perce
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     result = update_once.upsert_alert(
-        "Alerte wXTM+ 12.5%", 5763719,
+        "Alerte wXTM +12.5%", 5763719,
         [{"label": "wXTM", "price": 0.002, "currency": "USD", "change": 12.5, "market": "Uniswap V4 (Ethereum)", "error": None}],
         upward=True,
     )
@@ -359,7 +362,7 @@ def test_upsert_alert_replaces_previous_message_without_repinging_same_ten_perce
     assert calls[2][1] == "POST"
     assert "content" not in calls[2][2]
     assert calls[2][2]["allowed_mentions"] == {"parse": []}
-    assert calls[2][2]["embeds"][0]["title"] == "Alerte wXTM+ 12.5%"
+    assert calls[2][2]["embeds"][0]["title"] == "Alerte wXTM +12.5%"
     assert "description" not in calls[2][2]["embeds"][0]
     assert calls[2][2]["embeds"][0]["footer"]["text"] == "Palier @everyone notifié : +10%"
     assert calls[3][1] == "DELETE"
@@ -392,7 +395,7 @@ def test_upsert_alert_reports_per_asset_change_from_previous_alert(monkeypatch):
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     update_once.upsert_alert(
-        "Alerte XTM+12.75% | wXTM+13.75%",
+        "Alerte XTM +12.75% | wXTM +13.75%",
         5763719,
         [
             {"label": "XTM", "price": 0.001, "change": 12.75, "market": "MEXC", "error": None},
@@ -402,7 +405,7 @@ def test_upsert_alert_reports_per_asset_change_from_previous_alert(monkeypatch):
     )
 
     title = calls[2][2]["embeds"][0]["title"]
-    assert title == "🟢 + 0.25% (XTM) | wXTM - 0.25% — Alerte XTM+12.75% | wXTM+13.75%"
+    assert title == "🟢 + 0.25% (XTM) | wXTM - 0.25% — Alerte XTM +12.75% | wXTM +13.75%"
     assert update_once._is_alert_title(title, upward=True, test_label=None)
 
 
@@ -417,7 +420,7 @@ def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     update_once.upsert_alert(
-        "Alerte XTM- 10%  GO BUY", 15158332,
+        "Alerte XTM -10%  GO BUY", 15158332,
         [{"label": "XTM", "price": 0.001, "change": -10, "market": "MEXC", "error": None}],
         upward=False,
     )
@@ -449,7 +452,7 @@ def test_upsert_alert_pings_again_only_when_next_ten_percent_milestone_is_reache
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     update_once.upsert_alert(
-        "Alerte wXTM+ 20.1%", 5763719,
+        "Alerte wXTM +20.1%", 5763719,
         [{"label": "wXTM", "price": 0.002, "currency": "USD", "change": 20.1, "market": "Uniswap V4 (Ethereum)", "error": None}],
         upward=True,
     )
@@ -477,7 +480,7 @@ def test_upsert_alert_adds_everyone_once_to_legacy_message(monkeypatch):
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     update_once.upsert_alert(
-        "Alerte XTM+ 20%", 5763719,
+        "Alerte XTM +20%", 5763719,
         [{"label": "XTM", "price": 0.001, "change": 20, "market": "MEXC", "error": None}],
         upward=True,
     )
@@ -547,11 +550,11 @@ def test_test_alert_label_is_separate_from_live_alert(monkeypatch):
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     update_once.upsert_alert(
-        "Alerte XTM+ 10%", 5763719, [], upward=True, test_label="[TEST 4 MIN]", notify_everyone=False
+        "Alerte XTM +10%", 5763719, [], upward=True, test_label="[TEST 4 MIN]", notify_everyone=False
     )
 
     assert "content" not in calls[2][2]
-    assert calls[2][2]["embeds"][0]["title"] == "[TEST 4 MIN] Alerte XTM+ 10%"
+    assert calls[2][2]["embeds"][0]["title"] == "[TEST 4 MIN] Alerte XTM +10%"
     assert calls[2][2]["allowed_mentions"] == {"parse": []}
 
 
@@ -569,17 +572,17 @@ def test_fake_four_minute_progression_uses_one_green_and_red_box(monkeypatch):
     update_once.run_fake_alert_progression()
 
     assert [alert[0] for alert in alerts] == [
-        "Alerte XTM+10%", "Alerte XTM-10%  GO BUY",
-        "Alerte XTM+25%", "Alerte XTM-25%  GO BUY",
-        "Alerte XTM+100%", "Alerte XTM-100%  GO BUY",
-        "Alerte XTM+200%", "Alerte XTM-200%  GO BUY",
-        "Alerte XTM+300%", "Alerte XTM-300%  GO BUY",
+        "Alerte XTM +10%", "Alerte XTM -10%  GO BUY",
+        "Alerte XTM +25%", "Alerte XTM -25%  GO BUY",
+        "Alerte XTM +100%", "Alerte XTM -100%  GO BUY",
+        "Alerte XTM +200%", "Alerte XTM -200%  GO BUY",
+        "Alerte XTM +300%", "Alerte XTM -300%  GO BUY",
     ]
     assert [alert[1] for alert in alerts] == [5763719, 15158332] * 5
     assert all(alert[4]["test_label"] == "[TEST FICTIF 4 MIN]" for alert in alerts)
     assert all(alert[4]["notify_everyone"] is True for alert in alerts)
     assert [alert[0] for alert in alerts[::2]] == [
-        "Alerte XTM+10%", "Alerte XTM+25%", "Alerte XTM+100%", "Alerte XTM+200%", "Alerte XTM+300%"
+        "Alerte XTM +10%", "Alerte XTM +25%", "Alerte XTM +100%", "Alerte XTM +200%", "Alerte XTM +300%"
     ]
     assert [alert[2] for alert in alerts[::2]] == [10, 25, 100, 200, 300]
     assert [alert[2] for alert in alerts[1::2]] == [-10, -25, -100, -200, -300]
@@ -595,17 +598,17 @@ def test_verify_fake_progression_checks_one_mentioned_box_per_direction(monkeypa
         {
             "id": "green-id",
             "author": {"id": "bot-id"},
-            "content": "@everyone [TEST FICTIF 4 MIN] Alerte XTM+300%",
+            "content": "@everyone [TEST FICTIF 4 MIN] Alerte XTM +300%",
             "mention_everyone": True,
-            "embeds": [{"title": "[TEST FICTIF 4 MIN] Alerte XTM+300%", "color": 5763719,
+            "embeds": [{"title": "[TEST FICTIF 4 MIN] Alerte XTM +300%", "color": 5763719,
                         "fields": [{"name": "XTM", "value": "**0.004 USDT**"}]}],
         },
         {
             "id": "red-id",
             "author": {"id": "bot-id"},
-            "content": "@everyone [TEST FICTIF 4 MIN] Alerte XTM-300%  GO BUY",
+            "content": "@everyone [TEST FICTIF 4 MIN] Alerte XTM -300%  GO BUY",
             "mention_everyone": True,
-            "embeds": [{"title": "[TEST FICTIF 4 MIN] Alerte XTM-300%  GO BUY", "color": 15158332,
+            "embeds": [{"title": "[TEST FICTIF 4 MIN] Alerte XTM -300%  GO BUY", "color": 15158332,
                         "fields": [{"name": "XTM", "value": "**0 USDT**"}]}],
         },
     ]

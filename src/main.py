@@ -29,7 +29,7 @@ ALERT_PREFIX = "Alerte "
 LEGACY_ALERT_PREFIX = "Alert "
 ALERT_PREFIXES = (ALERT_PREFIX, LEGACY_ALERT_PREFIX)
 ALERT_MILESTONE_FOOTER = "Palier @everyone notifié : "
-ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)([+-])\s*(\d+(?:\.\d+)?)%")
+ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)\s*([+-])\s*(\d+(?:\.\d+)?)%")
 PRICE_EMBED_TITLE = "💱 Prix XTM / wXTM"
 PRICE_CHANGE_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)\s*%\s*sur 24 h", re.IGNORECASE)
 
@@ -238,8 +238,8 @@ def format_alert_text(change: float, *, upward: bool, threshold: float, label: s
     magnitude = min(300.0, max(threshold, abs(float(change))))
     percent = f"{magnitude:.2f}".rstrip("0").rstrip(".")
     if upward:
-        return f"{ALERT_PREFIX}{label}+{percent}%"
-    return f"{ALERT_PREFIX}{label}-{percent}%  GO BUY"
+        return f"{ALERT_PREFIX}{label} +{percent}%"
+    return f"{ALERT_PREFIX}{label} -{percent}%  GO BUY"
 
 
 def alert_quotes_for_direction(
