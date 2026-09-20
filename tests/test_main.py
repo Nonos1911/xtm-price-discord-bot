@@ -13,6 +13,8 @@ from main import (
     alert_changes_are_complete,
     alert_milestone,
     alert_quotes_for_direction,
+    change_since_previous,
+    extract_alert_changes,
     extract_previous_price_changes,
     format_trend_prefix,
     format_change,
@@ -49,6 +51,18 @@ def test_formatters():
     assert format_price(0.00123, "USD") == "0.00123 USD"
     assert format_price(0.002428, "USD", label="wXTM") == "0.00243 USDT"
     assert format_change(-2.5) == "-2.50 % sur 24 h"
+
+
+def test_change_since_previous_is_consistent_for_both_assets_and_directions():
+    assert change_since_previous(12.75, 12.5) == 0.25
+    assert change_since_previous(-17.75, -17.5) == -0.25
+    assert change_since_previous(12.75, None) is None
+    fields = [
+        SimpleNamespace(name="XTM", value="**0.001 USDT**\n+12.75 % sur 24 h"),
+        SimpleNamespace(name="wXTM", value="**0.00243 USDT**\n-17.75 % sur 24 h"),
+    ]
+    messages = [SimpleNamespace(embeds=[SimpleNamespace(fields=fields)])]
+    assert extract_alert_changes(messages) == {"XTM": 12.75, "wXTM": -17.75}
 
 
 def test_worker_alerts_include_only_affected_tokens_and_keep_one_direction_key():

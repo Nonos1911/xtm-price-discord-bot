@@ -171,6 +171,24 @@ def extract_previous_price_changes(message: dict[str, Any]) -> dict[str, float]:
     return {}
 
 
+def extract_alert_changes(message: dict[str, Any]) -> dict[str, float]:
+    """Read each asset's displayed 24 h change from a prior alert message."""
+    changes: dict[str, float] = {}
+    for embed in message.get("embeds", []):
+        for field in embed.get("fields", []):
+            match = PRICE_CHANGE_RE.search(str(field.get("value", "")))
+            if match:
+                changes.setdefault(str(field.get("name", "")), float(match.group(1)))
+    return changes
+
+
+def change_since_previous(current: float | None, previous: float | None) -> float | None:
+    """Return the change in the displayed 24 h percentage, in percentage points."""
+    if current is None or previous is None:
+        return None
+    return current - previous
+
+
 def variation_trend_sign(current: float, previous: float | None) -> str:
     if previous is None:
         return "~"
@@ -282,6 +300,7 @@ def build_alert_embed(
     notified_milestone: int | None = None,
     upward: bool = True,
     previous_changes: dict[str, float] | None = None,
+    previous_alert_changes: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     display_title = text
     if previous_changes is not None and not text.startswith("["):
@@ -299,10 +318,15 @@ def build_alert_embed(
                 bounded_change = -magnitude if float(quote["change"]) < 0 else magnitude
                 quote = {**quote, "change": bounded_change}
             alert_quotes.append(quote)
-        embed["fields"] = [
-            {"name": quote["label"], "value": price_text(quote), "inline": True}
-            for quote in alert_quotes
-        ]
+        fields = []
+        for quote in alert_quotes:
+            value = price_text(quote)
+            previous = (previous_alert_changes or {}).get(str(quote["label"]))
+            delta = change_since_previous(quote.get("change"), previous)
+            if delta is not None:
+                value += f"\nEntre alertes : {delta:+.2f} pt (variation 24 h)"
+            fields.append({"name": quote["label"], "value": value, "inline": True})
+        embed["fields"] = fields
     if notified_milestone is not None:
         sign = "+" if upward else "-"
         embed["footer"] = {"text": f"{ALERT_MILESTONE_FOOTER}{sign}{notified_milestone}%"}
@@ -427,6 +451,10 @@ def upsert_alert(
             for embed in message.get("embeds", [])
         )
     ]
+    previous_alert_changes: dict[str, float] = {}
+    for old_message in matching:
+        for label, change in extract_alert_changes(old_message).items():
+            previous_alert_changes.setdefault(label, change)
 
     previous_milestone = max(
         (_message_notified_milestone(message, upward=upward) for message in matching),
@@ -443,6 +471,7 @@ def upsert_alert(
             notified_milestone=stored_milestone,
             upward=upward,
             previous_changes=previous_changes,
+            previous_alert_changes=previous_alert_changes,
         )],
         "allowed_mentions": {"parse": ["everyone"]} if should_notify else {"parse": []},
     }

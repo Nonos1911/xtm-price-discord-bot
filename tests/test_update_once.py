@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 import update_once
@@ -8,9 +10,11 @@ from update_once import (
     alert_milestone,
     alert_changes_are_complete,
     alert_quotes_for_direction,
+    change_since_previous,
     build_alert_embed,
     build_embed,
     build_price_embed,
+    extract_alert_changes,
     extract_previous_price_changes,
     format_alert_text,
     format_group_alert_text,
@@ -70,6 +74,18 @@ def test_previous_price_changes_are_parsed_from_the_live_price_embed():
     assert variation_trend_sign(3.25, None) == "~"
 
 
+def test_alert_change_parser_and_delta_apply_independently_to_xtm_and_wxtm():
+    message = {"embeds": [{"fields": [
+        {"name": "XTM", "value": "**0.001 USDT**\n+12.75 % sur 24 h"},
+        {"name": "wXTM", "value": "**0.00243 USDT**\n-17.75 % sur 24 h"},
+    ]}]}
+    previous = extract_alert_changes(message)
+
+    assert previous == {"XTM": 12.75, "wXTM": -17.75}
+    assert change_since_previous(12.9, previous["XTM"]) == pytest.approx(0.15)
+    assert change_since_previous(-18.0, previous["wXTM"]) == pytest.approx(-0.25)
+
+
 def test_alert_thresholds_are_inclusive_for_both_assets():
     quotes = [
         {"label": "XTM", "change": 9.99},
@@ -121,6 +137,22 @@ def test_group_alert_names_only_affected_assets_and_can_handle_both():
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
     assert embed["title"] == "Alert XTM+10% | wXTM+17.19%"
     assert "description" not in embed
+
+
+def test_alert_embed_shows_change_since_previous_for_each_asset():
+    quotes = [
+        {"label": "XTM", "price": 0.001, "change": 12.75, "market": "MEXC", "error": None},
+        {"label": "wXTM", "price": 0.00243, "currency": "USD", "change": -17.75, "market": "Uniswap V4", "error": None},
+    ]
+    embed = build_alert_embed(
+        "Alert XTM+12.75% | wXTM-17.75%  GO BUY",
+        15158332,
+        quotes,
+        previous_alert_changes={"XTM": 12.5, "wXTM": -17.5},
+    )
+
+    assert "Entre alertes : +0.25 pt (variation 24 h)" in embed["fields"][0]["value"]
+    assert "Entre alertes : -0.25 pt (variation 24 h)" in embed["fields"][1]["value"]
 
 
 def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
@@ -308,6 +340,46 @@ def test_upsert_alert_replaces_previous_message_without_repinging_same_ten_perce
     assert calls[2][2]["embeds"][0]["footer"]["text"] == "Palier @everyone notifié : +10%"
     assert calls[3][1] == "DELETE"
     assert calls[3][0].endswith("/alert-message")
+
+
+def test_upsert_alert_reports_per_asset_change_from_previous_alert(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+    responses = iter([
+        {"id": "bot-id"},
+        [{
+            "id": "previous-alert",
+            "author": {"id": "bot-id"},
+            "embeds": [{
+                "title": "Alert XTM+12.50% | wXTM+14%",
+                "fields": [
+                    {"name": "XTM", "value": "**0.001 USDT**\n+12.50 % sur 24 h"},
+                    {"name": "wXTM", "value": "**0.00243 USDT**\n+14.00 % sur 24 h"},
+                ],
+            }],
+        }],
+        {"id": "fresh-alert"},
+        None,
+    ])
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method, body))
+        return next(responses)
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    update_once.upsert_alert(
+        "Alert XTM+12.75% | wXTM+13.75%",
+        5763719,
+        [
+            {"label": "XTM", "price": 0.001, "change": 12.75, "market": "MEXC", "error": None},
+            {"label": "wXTM", "price": 0.00243, "currency": "USD", "change": 13.75, "market": "Uniswap V4", "error": None},
+        ],
+        upward=True,
+    )
+
+    fields = calls[2][2]["embeds"][0]["fields"]
+    assert "Entre alertes : +0.25 pt (variation 24 h)" in fields[0]["value"]
+    assert "Entre alertes : -0.25 pt (variation 24 h)" in fields[1]["value"]
 
 
 def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):

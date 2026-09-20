@@ -156,6 +156,25 @@ def extract_previous_price_changes(embed: discord.Embed) -> dict[str, float]:
     return changes
 
 
+def extract_alert_changes(messages: list[discord.Message]) -> dict[str, float]:
+    """Read each asset's displayed 24 h change from the latest matching alert."""
+    changes: dict[str, float] = {}
+    for message in messages:
+        for embed in message.embeds:
+            for field in embed.fields:
+                match = PRICE_CHANGE_RE.search(field.value)
+                if match:
+                    changes.setdefault(field.name, float(match.group(1)))
+    return changes
+
+
+def change_since_previous(current: float | None, previous: float | None) -> float | None:
+    """Return the change in the displayed 24 h percentage, in percentage points."""
+    if current is None or previous is None:
+        return None
+    return current - previous
+
+
 def format_alert_text(change: float, *, upward: bool, threshold: float, label: str = "XTM") -> str:
     magnitude = min(300.0, max(threshold, abs(float(change))))
     percent = f"{magnitude:.2f}".rstrip("0").rstrip(".")
@@ -439,6 +458,17 @@ class PriceBot(discord.Client):
 
     async def upsert_alert(self, text: str, colour: discord.Colour, quotes: list[PriceQuote], *, upward: bool, previous_changes: dict[str, float] | None = None) -> None:
         channel = await self.resolve_channel(self.alert_channel_id)
+        bot_id = self.user.id if self.user else None
+        history = getattr(channel, "history", None)
+        existing_messages = []
+        if bot_id is not None and history is not None:
+            async for message in history(limit=100):
+                if message.author.id != bot_id:
+                    continue
+                if any(embed.title and is_alert_title(embed.title, upward=upward) for embed in message.embeds):
+                    existing_messages.append(message)
+        previous_alert_changes = extract_alert_changes(existing_messages)
+
         title = text
         if previous_changes is not None:
             title = f"{format_trend_prefix(alert_trend_sign(quotes, previous_changes))} {text}"
@@ -456,19 +486,13 @@ class PriceBot(discord.Client):
                     magnitude = min(300.0, max(self.alert_threshold, abs(display_change)))
                     display_change = -magnitude if display_change < 0 else magnitude
                 value = f"**{format_price(quote.price, quote.currency, label=quote.label)}**\n{format_change(display_change)}"
+                previous = previous_alert_changes.get(quote.label)
+                delta = change_since_previous(display_change, previous)
+                if delta is not None:
+                    value += f"\nEntre alertes : {delta:+.2f} pt (variation 24 h)"
                 if quote.market:
                     value += f"\nMarché : {quote.market}"
             alert_embed.add_field(name=quote.label, value=value, inline=True)
-
-        bot_id = self.user.id if self.user else None
-        history = getattr(channel, "history", None)
-        existing_messages = []
-        if bot_id is not None and history is not None:
-            async for message in history(limit=100):
-                if message.author.id != bot_id:
-                    continue
-                if any(embed.title and is_alert_title(embed.title, upward=upward) for embed in message.embeds):
-                    existing_messages.append(message)
 
         previous_milestone = max(
             (message_notified_milestone(message, upward=upward) for message in existing_messages),

@@ -29,6 +29,9 @@ Le titre de l'alerte commence par un repère compact avant `Alert` : `🟢 +` si
 variation dominante a augmenté, `🔴 -` si elle a diminué et `🟡 ~` si elle est
 stable ou si aucun relevé antérieur n'est disponible. Le signe n'est plus
 répété dans les détails.
+Chaque actif affiche également l'écart, en points de pourcentage, entre sa
+variation 24 h actuelle et celle de l'alerte précédente. Le calcul est fait
+séparément et de la même manière pour XTM et wXTM.
 Les deux directions peuvent déclencher lors de la même exécution. Les
 pourcentages affichés sont plafonnés à `+300 %` et `-300 %`. Quand un actif
 repasse sous le seuil, il disparaît de la prochaine mise à jour si un autre
