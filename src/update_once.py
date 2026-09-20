@@ -270,8 +270,10 @@ def upsert_alert(
 
     if matching:
         current = matching[0]  # Discord returns channel history newest-first.
-        # Edits keep the visible text, but must never ping the server a second time.
-        payload["allowed_mentions"] = {"parse": []}
+        # Add the @everyone ping only if this message has never notified it;
+        # subsequent edits update the same message without pinging again.
+        should_notify = notify_everyone and not current.get("mention_everyone", False)
+        payload["allowed_mentions"] = {"parse": ["everyone"]} if should_notify else {"parse": []}
         updated = api_json(
             f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages/{current['id']}",
             headers=headers,
@@ -298,8 +300,11 @@ def run_fake_alert_progression() -> None:
             (True, magnitude, 5763719),
             (False, -magnitude, 15158332),
         ):
+            # Fake a matching spot price from a 0.001 USDT baseline. A spot price
+            # cannot fall below zero, so simulated drops beyond -100% stay at zero.
+            fake_xtm_price = max(0.0, 0.001 * (1.0 + change / 100.0))
             quotes = [
-                {"label": "XTM", "price": 0.0019, "change": change, "market": "MEXC (test)", "error": None},
+                {"label": "XTM", "price": fake_xtm_price, "change": change, "market": "MEXC (test)", "error": None},
                 {"label": "wXTM", "price": 0.0021, "change": 3.2, "market": "Gate (test)", "error": None},
             ]
             text = format_alert_text(change, upward=upward)
@@ -309,7 +314,7 @@ def run_fake_alert_progression() -> None:
                 quotes,
                 upward=upward,
                 test_label="[TEST FICTIF 4 MIN]",
-                notify_everyone=False,
+                notify_everyone=True,
             )
             print(f"Minute {index}: {result}")
         if index < len(steps) - 1:

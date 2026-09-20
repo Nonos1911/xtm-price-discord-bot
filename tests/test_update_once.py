@@ -92,7 +92,7 @@ def test_upsert_alert_edits_same_message_without_pinging_again(monkeypatch):
     calls = []
     responses = iter([
         {"id": "bot-id"},
-        [{"id": "alert-message", "author": {"id": "bot-id"}, "content": "@everyone Alert XTM+10%", "embeds": [{"title": "Alert XTM+10%"}]}],
+        [{"id": "alert-message", "author": {"id": "bot-id"}, "content": "@everyone Alert XTM+10%", "mention_everyone": True, "embeds": [{"title": "Alert XTM+10%"}]}],
         {"id": "alert-message"},
     ])
 
@@ -127,6 +127,27 @@ def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
     assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
 
 
+def test_upsert_alert_adds_everyone_once_to_legacy_message(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+    responses = iter([
+        {"id": "bot-id"},
+        [{"id": "legacy-alert", "author": {"id": "bot-id"}, "content": "Alert XTM+10%", "mention_everyone": False, "embeds": [{"title": "Alert XTM+10%"}]}],
+        {"id": "legacy-alert"},
+    ])
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method, body))
+        return next(responses)
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    update_once.upsert_alert("Alert XTM+20%", 5763719, [], upward=True)
+
+    assert calls[2][1] == "PATCH"
+    assert calls[2][2]["content"] == "@everyone Alert XTM+20%"
+    assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
+
+
 def test_test_alert_label_is_separate_from_live_alert(monkeypatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
     calls = []
@@ -150,7 +171,7 @@ def test_fake_four_minute_progression_uses_one_green_and_red_box(monkeypatch):
     pauses = []
 
     def fake_upsert(text, color, quotes, **kwargs):
-        alerts.append((text, color, quotes[0]["change"], kwargs))
+        alerts.append((text, color, quotes[0]["change"], quotes[0]["price"], kwargs))
         return "test-message"
 
     monkeypatch.setattr(update_once, "upsert_alert", fake_upsert)
@@ -166,7 +187,14 @@ def test_fake_four_minute_progression_uses_one_green_and_red_box(monkeypatch):
         "Alert XTM+300%", "Alert XTM-300%  GO BUY",
     ]
     assert [alert[1] for alert in alerts] == [5763719, 15158332] * 5
+    assert all(alert[4]["test_label"] == "[TEST FICTIF 4 MIN]" for alert in alerts)
+    assert all(alert[4]["notify_everyone"] is True for alert in alerts)
+    assert [alert[0] for alert in alerts[::2]] == [
+        "Alert XTM+10%", "Alert XTM+25%", "Alert XTM+100%", "Alert XTM+200%", "Alert XTM+300%"
+    ]
+    assert [alert[2] for alert in alerts[::2]] == [10, 25, 100, 200, 300]
+    assert [alert[2] for alert in alerts[1::2]] == [-10, -25, -100, -200, -300]
     assert [alert[2] for alert in alerts] == [10, -10, 25, -25, 100, -100, 200, -200, 300, -300]
-    assert all(alert[3]["test_label"] == "[TEST FICTIF 4 MIN]" for alert in alerts)
-    assert all(alert[3]["notify_everyone"] is False for alert in alerts)
+    assert [round(alert[3], 8) for alert in alerts[::2]] == [0.0011, 0.00125, 0.002, 0.003, 0.004]
+    assert [round(alert[3], 8) for alert in alerts[1::2]] == [0.0009, 0.00075, 0.0, 0.0, 0.0]
     assert pauses == [60, 60, 60, 60]

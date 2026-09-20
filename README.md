@@ -82,7 +82,10 @@ rouge, puis le fonctionnement planifié reste inchangé.
 Pour vérifier les éditions dans les mêmes messages sur quatre minutes, lance le
 workflow avec `test_alerts = progression_4min`. Il simule `+10, +25, +100,
 +200, +300 %` et les mêmes valeurs négatives. Les messages portent la mention
-`[TEST FICTIF 4 MIN]` et n'envoient aucun ping.
+`[TEST FICTIF 4 MIN]`, affichent des prix XTM fictifs cohérents avec le taux
+(une baisse simulée ne peut pas faire descendre un prix sous zéro), et ne
+notifient `@everyone` qu'à leur première création. Les éditions suivantes ne
+renvoient pas de ping.
 
 Pour tester un snapshot, lance le workflow avec `snapshot_only = true`. Le
 cronjob de quatre heures utilise cette option et publie dans `mog-post` sans

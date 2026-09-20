@@ -300,10 +300,17 @@ class PriceBot(discord.Client):
 
         content = f"@everyone {text}"
         if existing is not None:
+            # If an old alert was created before mentions were enabled, add the
+            # mention once; never ping again on later edits.
+            allowed_mentions = (
+                discord.AllowedMentions(everyone=True)
+                if not existing.mention_everyone
+                else discord.AllowedMentions.none()
+            )
             await existing.edit(
                 content=content,
                 embed=alert_embed,
-                allowed_mentions=discord.AllowedMentions.none(),
+                allowed_mentions=allowed_mentions,
             )
             LOGGER.info("Alerte mise à jour dans le même message (%s)", existing.id)
         else:
