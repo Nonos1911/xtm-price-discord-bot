@@ -18,11 +18,9 @@ DISCORD_BASE = "https://discord.com/api/v10"
 CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID", "1370700962695610430")
 ALERT_CHANNEL_ID = os.getenv("ALERT_CHANNEL_ID", "1163364187796426776")
 ALERT_THRESHOLD_PERCENT = float(os.getenv("ALERT_THRESHOLD_PERCENT", "10"))
-ALERT_REPEAT_COUNT = int(os.getenv("ALERT_REPEAT_COUNT", "5"))
-ALERT_INTERVAL_SECONDS = int(os.getenv("ALERT_INTERVAL_SECONDS", "60"))
 PRICE_EMBED_TITLE = "💱 Prix XTM / wXTM"
-ALERT_TEXT = "Alert XTM+10%"
-BUY_ALERT_TEXT = "Alert XTM-10%  GO BUY"
+ALERT_UP_PREFIX = "Alert XTM+"
+ALERT_DOWN_PREFIX = "Alert XTM-"
 COINS = [("minotari", "XTM", "MEXC"), ("wrapped-minotari", "wXTM", "Gate")]
 
 
@@ -201,9 +199,16 @@ def build_alert_embed(text: str, color: int, quotes: list[dict[str, Any]] | None
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     if quotes is not None:
+        alert_quotes = []
+        for quote in quotes:
+            if quote["label"] == "XTM" and quote["change"] is not None:
+                magnitude = min(300.0, max(ALERT_THRESHOLD_PERCENT, abs(float(quote["change"]))))
+                bounded_change = -magnitude if float(quote["change"]) < 0 else magnitude
+                quote = {**quote, "change": bounded_change}
+            alert_quotes.append(quote)
         embed["fields"] = [
             {"name": quote["label"], "value": price_text(quote), "inline": True}
-            for quote in quotes
+            for quote in alert_quotes
         ]
     return embed
 
@@ -218,30 +223,71 @@ def xtm_buy_alert_triggered(quotes: list[dict[str, Any]]) -> bool:
     return bool(xtm_quote and xtm_quote["change"] is not None and xtm_quote["change"] <= -ALERT_THRESHOLD_PERCENT)
 
 
-def send_alert_burst(text: str, color: int, quotes: list[dict[str, Any]], repeat_count: int | None = None) -> list[str]:
+def format_alert_text(change: float, *, upward: bool) -> str:
+    magnitude = min(300.0, max(ALERT_THRESHOLD_PERCENT, abs(float(change))))
+    percent = f"{magnitude:.2f}".rstrip("0").rstrip(".")
+    if upward:
+        return f"{ALERT_UP_PREFIX}{percent}%"
+    return f"{ALERT_DOWN_PREFIX}{percent}%  GO BUY"
+
+
+def upsert_alert(
+    text: str,
+    color: int,
+    quotes: list[dict[str, Any]],
+    *,
+    upward: bool,
+    test_label: str | None = None,
+    notify_everyone: bool = True,
+) -> str:
+    """Create an alert once, then edit that same bot-authored message on later runs."""
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN est absent")
     headers = {"Authorization": f"Bot {token}"}
-    payload = {
-        "content": f"@everyone {text}",
-        "embeds": [build_alert_embed(text, color, quotes)],
-        "allowed_mentions": {"parse": ["everyone"]},
-    }
-    created_ids: list[str] = []
-    count = ALERT_REPEAT_COUNT if repeat_count is None else repeat_count
-    for index in range(count):
-        created = api_json(
-            f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages",
+    display_text = f"{test_label} {text}" if test_label else text
+    content = f"@everyone {display_text}" if notify_everyone else display_text
+    payload: dict[str, Any] = {"content": content, "embeds": [build_alert_embed(display_text, color, quotes)]}
+    bot = api_json(f"{DISCORD_BASE}/users/@me", headers=headers)
+    messages = api_json(
+        f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages?limit=100",
+        headers=headers,
+    )
+    prefix = ALERT_UP_PREFIX if upward else ALERT_DOWN_PREFIX
+    identity = f"{test_label} {prefix}" if test_label else prefix
+    matching = [
+        message
+        for message in messages
+        if message.get("author", {}).get("id") == bot.get("id")
+        and (
+            str(message.get("content", "")).removeprefix("@everyone ").startswith(identity)
+            or any(
+                str(embed.get("title", "")).startswith(identity)
+                for embed in message.get("embeds", [])
+            )
+        )
+    ]
+
+    if matching:
+        current = matching[0]  # Discord returns channel history newest-first.
+        # Edits keep the visible text, but must never ping the server a second time.
+        payload["allowed_mentions"] = {"parse": []}
+        updated = api_json(
+            f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages/{current['id']}",
             headers=headers,
-            method="POST",
+            method="PATCH",
             body=payload,
         )
-        created_ids.append(created["id"])
-        print(f"alerte {index + 1}/{ALERT_REPEAT_COUNT}: message {created['id']} créé")
-        if index + 1 < count:
-            time.sleep(ALERT_INTERVAL_SECONDS)
-    return created_ids
+        return f"alerte {text} mise à jour dans le message {updated['id']}"
+
+    payload["allowed_mentions"] = {"parse": ["everyone"]} if notify_everyone else {"parse": []}
+    created = api_json(
+        f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages",
+        headers=headers,
+        method="POST",
+        body=payload,
+    )
+    return f"alerte {text} créée dans le message {created['id']}"
 
 
 def main() -> int:
@@ -261,16 +307,18 @@ def main() -> int:
     print(update_discord(embed))
     if os.getenv("TEST_ALERTS", "").strip().lower() == "both_once":
         print("Test manuel: envoi unique des alertes verte et rouge dans mog-post")
-        send_alert_burst(ALERT_TEXT, 5763719, quotes, repeat_count=1)
-        send_alert_burst(BUY_ALERT_TEXT, 15158332, quotes, repeat_count=1)
+        print(upsert_alert(format_alert_text(ALERT_THRESHOLD_PERCENT, upward=True), 5763719, quotes, upward=True))
+        print(upsert_alert(format_alert_text(-ALERT_THRESHOLD_PERCENT, upward=False), 15158332, quotes, upward=False))
         return 0
     xtm_quote = next(quote for quote in quotes if quote["label"] == "XTM")
     if xtm_alert_triggered(quotes):
         print(f"Variation XTM détectée: {xtm_quote['change']:.2f} %; lancement de l'alerte")
-        send_alert_burst(ALERT_TEXT, 5763719, quotes)
+        print(upsert_alert(format_alert_text(xtm_quote["change"], upward=True), 5763719, quotes, upward=True))
     elif xtm_buy_alert_triggered(quotes):
         print(f"Variation XTM détectée: {xtm_quote['change']:.2f} %; lancement de l'alerte achat")
-        send_alert_burst(BUY_ALERT_TEXT, 15158332, quotes)
+        print(upsert_alert(format_alert_text(xtm_quote["change"], upward=False), 15158332, quotes, upward=False))
+    else:
+        print("Variation XTM sous le seuil de 10 %; alertes existantes laissées inchangées")
     return 0
 
 

@@ -9,12 +9,15 @@ Il maintient un seul embed dans le salon Discord `1370700962695610430` et le
 met à jour toutes les minutes. Les anciens embeds de cours sont nettoyés. Le service est
 conçu pour fonctionner dans un worker cloud, donc ton PC peut être éteint.
 
-Si la variation 24 h de XTM atteint `+10 %`, le bot envoie `Alert XTM+10%`
-dans `mog-post` (`1163364187796426776`) cinq fois, à une minute d'intervalle,
-avec un embed vert. À `-10 %` ou moins, il envoie `Alert XTM-10%  GO BUY`
-avec un embed rouge, avec la même répétition. Ce message est un signal
-automatique et ne constitue pas un conseil financier. Chaque embed d'alerte
-contient aussi les deux cours XTM/USDT et wXTM/USDT utilisés au déclenchement.
+Si la variation 24 h de XTM atteint `+10 %`, le bot crée une seule alerte verte
+dans `mog-post` (`1163364187796426776`). Tant que la variation reste à `+10 %`
+ou plus, il actualise ce même message avec le pourcentage courant, plafonné à
+`+300 %`. À `-10 %` ou moins, il fait de même avec une seule alerte rouge,
+affichant la variation de `-10 %` à `-300 %`. Si la variation repasse sous le
+seuil correspondant, le bot cesse d'actualiser l'alerte et la laisse telle
+quelle. Les modifications ne renvoient pas de nouvelle notification
+`@everyone`. Ce message est un signal automatique et ne constitue pas un conseil
+financier. Chaque embed d'alerte contient aussi les cours XTM/USDT et wXTM/USDT.
 
 Un cronjob dédié peut lancer le workflow avec `snapshot_only = true` toutes les
 4 heures. Dans ce mode, le bot publie une nouvelle embed ponctuelle dans
@@ -56,8 +59,8 @@ dépôt public et ne dépend pas de ton PC. Les horaires GitHub peuvent toutefoi
 Le workflow est autonome : il utilise le script `src/update_once.py`, qui ne
 requiert ni Python ni Discord ouverts sur ton ordinateur. Le token reste dans le
 secret GitHub `DISCORD_BOT_TOKEN` et n'est jamais écrit dans le dépôt. Le job
-dispose de six minutes, ce qui couvre la mise à jour du prix et les cinq envois
-d'alerte espacés d'une minute.
+met à jour le prix et, si nécessaire, édite le message d'alerte existant au lieu
+d'en publier plusieurs.
 
 Pour l'utiliser :
 

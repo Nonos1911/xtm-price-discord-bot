@@ -22,8 +22,8 @@ from discord.ext import tasks
 
 
 LOGGER = logging.getLogger("xtm-price-bot")
-UP_ALERT_TEXT = "Alert XTM+10%"
-BUY_ALERT_TEXT = "Alert XTM-10%  GO BUY"
+UP_ALERT_PREFIX = "Alert XTM+"
+BUY_ALERT_PREFIX = "Alert XTM-"
 
 
 def env_int(name: str, default: int) -> int:
@@ -102,6 +102,14 @@ def format_change(value: float | None) -> str:
     if value is None:
         return "variation 24 h indisponible"
     return f"{value:+.2f} % sur 24 h"
+
+
+def format_alert_text(change: float, *, upward: bool, threshold: float) -> str:
+    magnitude = min(300.0, max(threshold, abs(float(change))))
+    percent = f"{magnitude:.2f}".rstrip("0").rstrip(".")
+    if upward:
+        return f"{UP_ALERT_PREFIX}{percent}%"
+    return f"{BUY_ALERT_PREFIX}{percent}%  GO BUY"
 
 
 @dataclass(frozen=True)
@@ -193,7 +201,7 @@ class CoinGeckoClient:
 
 
 class PriceBot(discord.Client):
-    def __init__(self, *, channel_id: int, alert_channel_id: int, coins: list[tuple[str, str, str]], state_file: Path, interval_minutes: int, alert_threshold: float, alert_repeat_count: int, alert_interval_seconds: int, **kwargs: Any) -> None:
+    def __init__(self, *, channel_id: int, alert_channel_id: int, coins: list[tuple[str, str, str]], state_file: Path, interval_minutes: int, alert_threshold: float, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.channel_id = channel_id
         self.alert_channel_id = alert_channel_id
@@ -201,8 +209,6 @@ class PriceBot(discord.Client):
         self.state_file = state_file
         self.interval_minutes = interval_minutes
         self.alert_threshold = alert_threshold
-        self.alert_repeat_count = alert_repeat_count
-        self.alert_interval_seconds = alert_interval_seconds
         self.alert_task: asyncio.Task[None] | None = None
         self.http_session: aiohttp.ClientSession | None = None
         self.price_client: CoinGeckoClient | None = None
@@ -259,39 +265,70 @@ class PriceBot(discord.Client):
             channel = await super().fetch_channel(channel_id)
         return channel
 
-    async def send_alert_burst(self, text: str, colour: discord.Colour, quotes: list[PriceQuote]) -> None:
+    async def upsert_alert(self, text: str, colour: discord.Colour, quotes: list[PriceQuote], *, upward: bool) -> None:
         channel = await self.resolve_channel(self.alert_channel_id)
-        for index in range(self.alert_repeat_count):
-            alert_embed = discord.Embed(
-                title=text,
-                description=text,
-                colour=colour,
-                timestamp=datetime.now(timezone.utc),
+        alert_embed = discord.Embed(
+            title=text,
+            description=text,
+            colour=colour,
+            timestamp=datetime.now(timezone.utc),
+        )
+        for quote in quotes:
+            if quote.price_usdt is None:
+                value = f"Indisponible — {quote.error or 'aucun marché USDT'}"
+            else:
+                display_change = quote.change_24h
+                if quote.label == "XTM" and display_change is not None:
+                    magnitude = min(300.0, max(self.alert_threshold, abs(display_change)))
+                    display_change = -magnitude if display_change < 0 else magnitude
+                value = f"**{format_price(quote.price_usdt)}**\n{format_change(display_change)}"
+                if quote.market:
+                    value += f"\nMarché : {quote.market}"
+            alert_embed.add_field(name=quote.label, value=value, inline=True)
+
+        prefix = UP_ALERT_PREFIX if upward else BUY_ALERT_PREFIX
+        bot_id = self.user.id if self.user else None
+        history = getattr(channel, "history", None)
+        existing = None
+        if bot_id is not None and history is not None:
+            async for message in history(limit=100):
+                if message.author.id != bot_id:
+                    continue
+                if any(embed.title and embed.title.startswith(prefix) for embed in message.embeds):
+                    existing = message
+                    break
+
+        content = f"@everyone {text}"
+        if existing is not None:
+            await existing.edit(
+                content=content,
+                embed=alert_embed,
+                allowed_mentions=discord.AllowedMentions.none(),
             )
-            for quote in quotes:
-                if quote.price_usdt is None:
-                    value = f"Indisponible — {quote.error or 'aucun marché USDT'}"
-                else:
-                    value = f"**{format_price(quote.price_usdt)}**\n{format_change(quote.change_24h)}"
-                    if quote.market:
-                        value += f"\nMarché : {quote.market}"
-                alert_embed.add_field(name=quote.label, value=value, inline=True)
-            await channel.send(content=text, embed=alert_embed)  # type: ignore[attr-defined]
-            if index + 1 < self.alert_repeat_count:
-                await asyncio.sleep(self.alert_interval_seconds)
+            LOGGER.info("Alerte mise à jour dans le même message (%s)", existing.id)
+        else:
+            await channel.send(  # type: ignore[attr-defined]
+                content=content,
+                embed=alert_embed,
+                allowed_mentions=discord.AllowedMentions(everyone=True),
+            )
+            LOGGER.info("Nouvelle alerte publiée : %s", text)
 
     def start_alert_if_needed(self, quotes: list[PriceQuote]) -> None:
         xtm_quote = next((quote for quote in quotes if quote.label == "XTM"), None)
         if not xtm_quote or xtm_quote.change_24h is None:
             return
         if xtm_quote.change_24h >= self.alert_threshold:
-            text, colour = UP_ALERT_TEXT, discord.Colour.green()
+            text = format_alert_text(xtm_quote.change_24h, upward=True, threshold=self.alert_threshold)
+            colour, upward = discord.Colour.green(), True
         elif xtm_quote.change_24h <= -self.alert_threshold:
-            text, colour = BUY_ALERT_TEXT, discord.Colour.red()
+            text = format_alert_text(xtm_quote.change_24h, upward=False, threshold=self.alert_threshold)
+            colour, upward = discord.Colour.red(), False
         else:
+            LOGGER.info("Variation XTM sous le seuil de 10 %; alertes existantes laissées inchangées")
             return
         if self.alert_task is None or self.alert_task.done():
-            self.alert_task = asyncio.create_task(self.send_alert_burst(text, colour, quotes))
+            self.alert_task = asyncio.create_task(self.upsert_alert(text, colour, quotes, upward=upward))
             LOGGER.warning("Alerte %s déclenchée à %.2f %% sur 24 h", text, xtm_quote.change_24h)
 
     async def publish_prices(self) -> None:
@@ -335,8 +372,6 @@ def main() -> None:
     coins = parse_coin_config(os.getenv("COINS", "minotari:XTM:MEXC,wrapped-minotari:wXTM:Gate"))
     alert_channel_id = env_int("ALERT_CHANNEL_ID", 1163364187796426776)
     alert_threshold = float(os.getenv("ALERT_THRESHOLD_PERCENT", "10"))
-    alert_repeat_count = env_int("ALERT_REPEAT_COUNT", 5)
-    alert_interval_seconds = env_int("ALERT_INTERVAL_SECONDS", 60)
     state_file = Path(os.getenv("STATE_FILE", "/data/state.json"))
     intents = discord.Intents.none()
     bot = PriceBot(
@@ -346,8 +381,6 @@ def main() -> None:
         state_file=state_file,
         interval_minutes=interval,
         alert_threshold=alert_threshold,
-        alert_repeat_count=alert_repeat_count,
-        alert_interval_seconds=alert_interval_seconds,
         intents=intents,
     )
     bot.run(token, log_handler=None)

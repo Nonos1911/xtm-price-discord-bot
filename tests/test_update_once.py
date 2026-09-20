@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 import update_once
-from update_once import BUY_ALERT_TEXT, build_alert_embed, build_embed, build_price_embed, price_text, select_usdt_ticker, xtm_alert_triggered, xtm_buy_alert_triggered
+from update_once import build_alert_embed, build_embed, build_price_embed, format_alert_text, price_text, select_usdt_ticker, xtm_alert_triggered, xtm_buy_alert_triggered
 
 
 def test_select_usdt_ticker():
@@ -33,9 +33,14 @@ def test_xtm_alert_is_positive_and_inclusive():
     assert not xtm_alert_triggered([{"label": "XTM", "change": -12.0}])
     assert xtm_buy_alert_triggered([{"label": "XTM", "change": -10.0}])
     assert not xtm_buy_alert_triggered([{"label": "XTM", "change": -9.99}])
-    assert BUY_ALERT_TEXT == "Alert XTM-10%  GO BUY"
+    assert format_alert_text(-10, upward=False) == "Alert XTM-10%  GO BUY"
+    assert format_alert_text(10, upward=True) == "Alert XTM+10%"
+    assert format_alert_text(15.678, upward=True) == "Alert XTM+15.68%"
+    assert format_alert_text(-15.678, upward=False) == "Alert XTM-15.68%  GO BUY"
+    assert format_alert_text(450, upward=True) == "Alert XTM+300%"
+    assert format_alert_text(-450, upward=False) == "Alert XTM-300%  GO BUY"
     embed = build_alert_embed(
-        BUY_ALERT_TEXT,
+        format_alert_text(-10, upward=False),
         15158332,
         [
             {"label": "XTM", "price": 0.001, "change": -10.0, "market": "MEXC", "error": None},
@@ -46,6 +51,12 @@ def test_xtm_alert_is_positive_and_inclusive():
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
     assert "0.001 USDT" in embed["fields"][0]["value"]
     assert "0.002 USDT" in embed["fields"][1]["value"]
+    capped_embed = build_alert_embed(
+        "Alert XTM-300%  GO BUY",
+        15158332,
+        [{"label": "XTM", "price": 0.001, "change": -450.0, "market": "MEXC", "error": None}],
+    )
+    assert "-300.00 % sur 24 h" in capped_embed["fields"][0]["value"]
 
 
 def test_update_discord_reuses_one_price_message_and_removes_duplicates(monkeypatch):
@@ -76,16 +87,59 @@ def test_update_discord_reuses_one_price_message_and_removes_duplicates(monkeypa
     assert calls[3][1] == "DELETE"
 
 
-def test_alert_burst_mentions_everyone_once(monkeypatch):
+def test_upsert_alert_edits_same_message_without_pinging_again(monkeypatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
     calls = []
+    responses = iter([
+        {"id": "bot-id"},
+        [{"id": "alert-message", "author": {"id": "bot-id"}, "content": "@everyone Alert XTM+10%", "embeds": [{"title": "Alert XTM+10%"}]}],
+        {"id": "alert-message"},
+    ])
 
     def fake_api_json(url, *, headers=None, method="GET", body=None):
         calls.append((url, method, body))
-        return {"id": "alert-message"}
+        return next(responses)
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
-    update_once.send_alert_burst("Alert XTM+10%", 5763719, [], repeat_count=1)
+    result = update_once.upsert_alert("Alert XTM+12.5%", 5763719, [], upward=True)
 
-    assert calls[0][2]["content"] == "@everyone Alert XTM+10%"
-    assert calls[0][2]["allowed_mentions"] == {"parse": ["everyone"]}
+    assert result == "alerte Alert XTM+12.5% mise à jour dans le message alert-message"
+    assert calls[2][1] == "PATCH"
+    assert calls[2][2]["content"] == "@everyone Alert XTM+12.5%"
+    assert calls[2][2]["allowed_mentions"] == {"parse": []}
+    assert calls[2][2]["embeds"][0]["title"] == "Alert XTM+12.5%"
+
+
+def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+    responses = iter([{"id": "bot-id"}, [], {"id": "new-alert"}])
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method, body))
+        return next(responses)
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    update_once.upsert_alert("Alert XTM-10%  GO BUY", 15158332, [], upward=False)
+
+    assert calls[2][1] == "POST"
+    assert calls[2][2]["content"] == "@everyone Alert XTM-10%  GO BUY"
+    assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
+
+
+def test_test_alert_label_is_separate_from_live_alert(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+    responses = iter([{"id": "bot-id"}, [], {"id": "test-alert"}])
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method, body))
+        return next(responses)
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    update_once.upsert_alert(
+        "Alert XTM+10%", 5763719, [], upward=True, test_label="[TEST 4 MIN]", notify_everyone=False
+    )
+
+    assert calls[2][2]["content"] == "[TEST 4 MIN] Alert XTM+10%"
+    assert calls[2][2]["allowed_mentions"] == {"parse": []}
