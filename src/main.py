@@ -383,7 +383,6 @@ class PriceBot(discord.Client):
         channel = await self.resolve_channel(self.alert_channel_id)
         alert_embed = discord.Embed(
             title=text,
-            description=text,
             colour=colour,
             timestamp=datetime.now(timezone.utc),
         )
@@ -419,7 +418,7 @@ class PriceBot(discord.Client):
         stored_milestone = max(previous_milestone, current_milestone)
         sign = "+" if upward else "-"
         alert_embed.set_footer(text=f"{ALERT_MILESTONE_FOOTER}{sign}{stored_milestone}%")
-        content = f"@everyone {text}" if should_notify else text
+        content = "@everyone" if should_notify else None
         created = await channel.send(  # type: ignore[attr-defined]
             content=content,
             embed=alert_embed,

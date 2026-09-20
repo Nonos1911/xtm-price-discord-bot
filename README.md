@@ -31,6 +31,8 @@ quel. `@everyone` ne notifie qu'aux paliers franchis de 10 % en 10 % (±10,
 dernier palier notifié est conservé dans le pied de l'embed pour éviter les
 doublons malgré le remplacement du message. Ce message est un signal automatique
 et ne constitue pas un conseil financier.
+Le texte de l'alerte apparaît uniquement dans le titre blanc en gras de l'embed ;
+quand un palier ping @everyone, le contenu du message ne contient que cette mention.
 
 Un cronjob dédié peut lancer le workflow avec `snapshot_only = true` toutes les
 4 heures. Dans ce mode, le bot publie une nouvelle embed ponctuelle dans

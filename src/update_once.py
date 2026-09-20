@@ -227,7 +227,6 @@ def build_alert_embed(
 ) -> dict[str, Any]:
     embed = {
         "title": text,
-        "description": text,
         "color": color,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
@@ -363,9 +362,7 @@ def upsert_alert(
     current_milestone = alert_milestone(quotes)
     should_notify = notify_everyone and current_milestone > previous_milestone
     stored_milestone = max(previous_milestone, current_milestone) if notify_everyone else None
-    content = f"@everyone {display_text}" if should_notify else display_text
     payload: dict[str, Any] = {
-        "content": content,
         "embeds": [build_alert_embed(
             display_text,
             color,
@@ -375,6 +372,10 @@ def upsert_alert(
         )],
         "allowed_mentions": {"parse": ["everyone"]} if should_notify else {"parse": []},
     }
+    if should_notify:
+        # Keep the mention separate from the alert text, which appears once in
+        # the embed title. Non-ping refreshes have no message content at all.
+        payload["content"] = "@everyone"
     created = api_json(
         f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages",
         headers=headers,

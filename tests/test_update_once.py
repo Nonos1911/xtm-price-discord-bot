@@ -87,6 +87,8 @@ def test_group_alert_names_only_affected_assets_and_can_handle_both():
         ],
     )
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
+    assert embed["title"] == "Alert XTM+10% | wXTM+17.19%"
+    assert "description" not in embed
 
 
 def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
@@ -232,9 +234,10 @@ def test_upsert_alert_replaces_previous_message_without_repinging_same_ten_perce
 
     assert result == "nouveau message d'alerte fresh-alert publié; 1 ancienne(s) alerte(s) supprimée(s)"
     assert calls[2][1] == "POST"
-    assert calls[2][2]["content"] == "Alert wXTM+12.5%"
+    assert "content" not in calls[2][2]
     assert calls[2][2]["allowed_mentions"] == {"parse": []}
     assert calls[2][2]["embeds"][0]["title"] == "Alert wXTM+12.5%"
+    assert "description" not in calls[2][2]["embeds"][0]
     assert calls[2][2]["embeds"][0]["footer"]["text"] == "Palier @everyone notifié : +10%"
     assert calls[3][1] == "DELETE"
     assert calls[3][0].endswith("/alert-message")
@@ -257,7 +260,7 @@ def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
     )
 
     assert calls[2][1] == "POST"
-    assert calls[2][2]["content"] == "@everyone Alert XTM-10%  GO BUY"
+    assert calls[2][2]["content"] == "@everyone"
     assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
     assert calls[2][2]["embeds"][0]["footer"]["text"] == "Palier @everyone notifié : -10%"
 
@@ -289,7 +292,7 @@ def test_upsert_alert_pings_again_only_when_next_ten_percent_milestone_is_reache
     )
 
     assert calls[2][1] == "POST"
-    assert calls[2][2]["content"] == "@everyone Alert wXTM+20.1%"
+    assert calls[2][2]["content"] == "@everyone"
     assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
     assert calls[2][2]["embeds"][0]["footer"]["text"] == "Palier @everyone notifié : +20%"
     assert calls[3][1] == "DELETE"
@@ -317,7 +320,7 @@ def test_upsert_alert_adds_everyone_once_to_legacy_message(monkeypatch):
     )
 
     assert calls[2][1] == "POST"
-    assert calls[2][2]["content"] == "@everyone Alert XTM+20%"
+    assert calls[2][2]["content"] == "@everyone"
     assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
     assert calls[3][1] == "DELETE"
 
@@ -336,7 +339,8 @@ def test_test_alert_label_is_separate_from_live_alert(monkeypatch):
         "Alert XTM+10%", 5763719, [], upward=True, test_label="[TEST 4 MIN]", notify_everyone=False
     )
 
-    assert calls[2][2]["content"] == "[TEST 4 MIN] Alert XTM+10%"
+    assert "content" not in calls[2][2]
+    assert calls[2][2]["embeds"][0]["title"] == "[TEST 4 MIN] Alert XTM+10%"
     assert calls[2][2]["allowed_mentions"] == {"parse": []}
 
 
