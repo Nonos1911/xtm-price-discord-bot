@@ -142,14 +142,20 @@ def price_text(quote: dict[str, Any]) -> str:
     if quote["price"] is None:
         return f"Indisponible — {quote['error']}"
     price = quote["price"]
-    formatted = f"{price:,.4f}".replace(",", " ") if price >= 1 else f"{price:.10f}".rstrip("0").rstrip(".")
+    is_wxtm = quote.get("label") == "wXTM"
+    formatted = (
+        f"{price:.5f}"
+        if is_wxtm
+        else f"{price:,.4f}".replace(",", " ") if price >= 1
+        else f"{price:.10f}".rstrip("0").rstrip(".")
+    )
     change = quote["change"]
     change_text = "variation 24 h indisponible" if change is None else f"{change:+.2f} % sur 24 h"
-    currency = quote.get("currency", "USDT")
-    lines = [f"**{formatted} {currency}**", change_text]
+    currency = "USDT" if is_wxtm else quote.get("currency", "USDT")
+    lines = []
     if quote.get("trend"):
-        marker = format_trend_marker(str(quote["trend"]))
-        lines.append(f"Évolution vs relevé précédent :\n{marker}")
+        lines.append(format_trend_marker(str(quote["trend"])))
+    lines.extend((f"**{formatted} {currency}**", change_text))
     lines.append(f"Marché : {quote['market']}")
     return "\n".join(lines)
 
@@ -191,7 +197,7 @@ def build_embed(quotes: list[dict[str, Any]]) -> dict[str, Any]:
 def build_price_embed(quotes: list[dict[str, Any]], footer_text: str) -> dict[str, Any]:
     return {
         "title": PRICE_EMBED_TITLE,
-        "description": "XTM/USDT sur MEXC ; wXTM/USD depuis le pool Uniswap V4 (Ethereum).",
+        "description": "XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 (prix USD affiché à parité).",
         "color": 5793266,
         "fields": [{"name": quote["label"], "value": price_text(quote), "inline": True} for quote in quotes],
         "footer": {"text": footer_text},

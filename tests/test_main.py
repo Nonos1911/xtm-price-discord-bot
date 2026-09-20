@@ -47,6 +47,7 @@ def test_select_usdt_ticker_prefers_volume():
 def test_formatters():
     assert format_price(0.00123) == "0.00123 USDT"
     assert format_price(0.00123, "USD") == "0.00123 USD"
+    assert format_price(0.002428, "USD", label="wXTM") == "0.00243 USDT"
     assert format_change(-2.5) == "-2.50 % sur 24 h"
 
 
@@ -88,6 +89,7 @@ def test_worker_parses_previous_changes_and_calculates_trend_signs():
     assert variation_trend_sign(-13.0, -12.5) == "-"
     assert format_trend_marker("+") == "```diff\n+\n```"
     assert format_trend_marker("-") == "```diff\n-\n```"
+    assert format_trend_marker("?") == "`?`"
 
 
 def test_worker_alerts_can_trigger_both_assets_and_both_directions_independently():

@@ -6,9 +6,11 @@ Ce service récupère les cours de XTM et de wXTM depuis les marchés configuré
 - `wXTM` = Wrapped MinoTari (`wrapped-minotari`), pool **Uniswap V4 sur Ethereum** :
   `0x530581e8b4dff575d96af96cbfb74d0cc4ed0ec0cb7c953f491c7a60a787412d`.
 
-Le cours wXTM est lu directement dans ce pool par GeckoTerminal et affiché en
-USD (prix équivalent calculé par l'API depuis la paire wXTM/ETH) ; sa variation
-24 h pour les alertes vient également de ce pool. XTM reste lu sur MEXC en USDT.
+Le cours wXTM est lu directement dans ce pool par GeckoTerminal. La source donne
+un prix équivalent en USD depuis la paire wXTM/ETH ; l'application l'affiche en
+USDT à parité indicative (USD≈USDT), avec cinq décimales au maximum. Sa
+variation 24 h pour les alertes vient également de ce pool. XTM reste lu sur
+MEXC en USDT.
 
 Il maintient une seule box dans le salon Discord `1370700962695610430` : à chaque
 cycle, il publie le nouveau message puis supprime les anciennes boxes afin que
@@ -23,9 +25,10 @@ alerte active, le bot publie un nouveau message puis supprime l'ancien pour
 faire remonter l'alerte en bas du salon. Chaque alerte ne
 nomme et n'affiche que les actifs qui ont franchi son seuil ; si les deux
 franchissent le même seuil, elle affiche les deux et leurs pourcentages/prix.
-Chaque actif dans la box affiche aussi un `+` vert ou un `-` rouge selon que
-sa variation 24 h a augmenté ou diminué depuis le relevé précédent (`=` si elle
-est identique, `?` si aucun relevé antérieur n'est disponible).
+Chaque actif dans la box affiche en première ligne un signe compact : `+` vert
+ou `-` rouge selon que sa variation 24 h a augmenté ou diminué depuis le relevé
+précédent (`=` si elle est identique, `?` si aucun relevé antérieur n'est
+disponible).
 Les deux directions peuvent déclencher lors de la même exécution. Les
 pourcentages affichés sont plafonnés à `+300 %` et `-300 %`. Quand un actif
 repasse sous le seuil, il disparaît de la prochaine mise à jour si un autre

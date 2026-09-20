@@ -96,9 +96,11 @@ def select_usdt_ticker(tickers: list[dict[str, Any]], preferred_market: str) -> 
     return max(candidates, key=lambda item: item["_volume_float"], default=None)
 
 
-def format_price(value: float | None, currency: str = "USDT") -> str:
+def format_price(value: float | None, currency: str = "USDT", *, label: str | None = None) -> str:
     if value is None:
         return "indisponible"
+    if label == "wXTM":
+        return f"{value:.5f} USDT"
     if value >= 1:
         return f"{value:,.4f} {currency}".replace(",", " ")
     return f"{value:.10f}".rstrip("0").rstrip(".") + f" {currency}"
@@ -432,7 +434,7 @@ class PriceBot(discord.Client):
                 if display_change is not None:
                     magnitude = min(300.0, max(self.alert_threshold, abs(display_change)))
                     display_change = -magnitude if display_change < 0 else magnitude
-                value = f"**{format_price(quote.price, quote.currency)}**\n{format_change(display_change)}"
+                value = f"**{format_price(quote.price, quote.currency, label=quote.label)}**\n{format_change(display_change)}"
                 if quote.market:
                     value += f"\nMarché : {quote.market}"
             if quote.change_24h is not None:
@@ -440,13 +442,7 @@ class PriceBot(discord.Client):
                     quote.change_24h,
                     (previous_changes or {}).get(quote.label),
                 )
-                marker = format_trend_marker(trend)
-                value = value.replace(
-                    "\nMarché :",
-                    f"\nÉvolution vs relevé précédent :\n{marker}\nMarché :",
-                )
-                if "\nMarché :" not in value:
-                    value += f"\nÉvolution vs relevé précédent :\n{marker}"
+                value = f"{format_trend_marker(trend)}\n{value}"
             alert_embed.add_field(name=quote.label, value=value, inline=True)
 
         bot_id = self.user.id if self.user else None
@@ -571,7 +567,7 @@ class PriceBot(discord.Client):
 
         embed = discord.Embed(
             title=PRICE_EMBED_TITLE,
-            description="XTM/USDT sur MEXC ; wXTM/USD depuis son pool Uniswap V4.",
+            description="XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 (prix USD affiché à parité).",
             colour=discord.Colour.blue(),
             timestamp=datetime.now(timezone.utc),
         )
@@ -579,7 +575,7 @@ class PriceBot(discord.Client):
             if quote.price is None:
                 value = f"Indisponible — {quote.error or 'marché indisponible'}"
             else:
-                value = f"**{format_price(quote.price, quote.currency)}**\n{format_change(quote.change_24h)}"
+                value = f"**{format_price(quote.price, quote.currency, label=quote.label)}**\n{format_change(quote.change_24h)}"
                 if quote.market:
                     value += f"\nMarché : {quote.market}"
             embed.add_field(name=quote.label, value=value, inline=True)

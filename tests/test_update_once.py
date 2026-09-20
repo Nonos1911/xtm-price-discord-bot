@@ -49,6 +49,7 @@ def test_embed_has_both_assets():
     ])
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
     assert "USDT" in price_text({"price": 0.001, "change": 1.5, "market": "MEXC", "error": None})
+    assert "0.00243 USDT" in price_text({"label": "wXTM", "price": 0.002428, "currency": "USD", "change": 1.5, "market": "Uniswap", "error": None})
     assert embed["footer"]["text"] == "Mise à jour toutes les minutes"
     assert build_price_embed([], "Snapshot du prix toutes les 4 heures")["footer"]["text"] == "Snapshot du prix toutes les 4 heures"
 
@@ -132,14 +133,14 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
 
     assert embed["title"] == "Alert wXTM+18.7%"
     assert [field["name"] for field in embed["fields"]] == ["wXTM"]
-    assert "0.002428 USD" in embed["fields"][0]["value"]
+    assert "0.00243 USDT" in embed["fields"][0]["value"]
     trending_embed = build_alert_embed(
         "Alert wXTM+18.7%",
         5763719,
         affected,
         previous_changes={"wXTM": 18.8},
     )
-    assert "Évolution vs relevé précédent :\n```diff\n-\n```" in trending_embed["fields"][0]["value"]
+    assert trending_embed["fields"][0]["value"].startswith("```diff\n-\n```\n")
     assert format_alert_text(-10, upward=False) == "Alert XTM-10%  GO BUY"
     assert format_alert_text(10, upward=True) == "Alert XTM+10%"
     assert format_alert_text(15.678, upward=True) == "Alert XTM+15.68%"
@@ -157,7 +158,7 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
     assert embed["color"] == 15158332
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
     assert "0.001 USDT" in embed["fields"][0]["value"]
-    assert "0.002 USD" in embed["fields"][1]["value"]
+    assert "0.00200 USDT" in embed["fields"][1]["value"]
     capped_embed = build_alert_embed(
         "Alert XTM-300%  GO BUY",
         15158332,
@@ -232,7 +233,7 @@ def test_update_discord_republishes_latest_price_box_and_removes_old_boxes(monke
                     "title": "💱 Prix XTM / wXTM",
                     "fields": [
                         {"name": "XTM", "value": "**0.001 USDT**\n+3.25 % sur 24 h\nMarché : MEXC"},
-                        {"name": "wXTM", "value": "**0.002 USD**\n-12.50 % sur 24 h\nMarché : Uniswap"},
+                        {"name": "wXTM", "value": "**0.00200 USDT**\n-12.50 % sur 24 h\nMarché : Uniswap"},
                     ],
                 }]},
                 {"id": "old-price", "author": {"id": "bot-id"}, "embeds": [{"title": "💱 Prix XTM / wXTM"}]},
