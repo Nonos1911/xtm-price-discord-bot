@@ -16,6 +16,7 @@ from update_once import (
     build_price_embed,
     extract_alert_changes,
     extract_previous_price_changes,
+    format_alert_delta_title,
     format_alert_text,
     format_group_alert_text,
     price_text,
@@ -188,7 +189,10 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
         affected,
         previous_changes={"wXTM": 18.7},
     )
-    assert neutral_trend_embed["title"] == "🟡 ~0.00% — Alert wXTM+18.7%"
+    assert neutral_trend_embed["title"] == "🟡 ~ — Alert wXTM+18.7%"
+    assert format_alert_delta_title(
+        "Alert wXTM+18.7%", {"wXTM": -0.001}, asset_count=1
+    ) == "🟡 ~ — Alert wXTM+18.7%"
     assert format_alert_text(-10, upward=False) == "Alert XTM-10%  GO BUY"
     assert format_alert_text(10, upward=True) == "Alert XTM+10%"
     assert format_alert_text(15.678, upward=True) == "Alert XTM+15.68%"

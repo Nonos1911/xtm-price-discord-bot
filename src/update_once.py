@@ -213,10 +213,20 @@ def format_alert_delta_title(
     """Show each asset's delta directly beside its color marker."""
     if not deltas:
         return text
-    dominant_delta = max(deltas.values(), key=abs)
+    rounded_deltas = {
+        label: (0.0 if round(delta, 2) == 0 else round(delta, 2))
+        for label, delta in deltas.items()
+    }
+    if all(delta == 0 for delta in rounded_deltas.values()):
+        return f"🟡 ~ — {text}"
+    dominant_delta = max(rounded_deltas.values(), key=abs)
     marker = "🟢" if dominant_delta > 0 else "🔴" if dominant_delta < 0 else "🟡"
     parts = []
-    for label, delta in deltas.items():
+    for label, delta in rounded_deltas.items():
+        if delta == 0:
+            value = "~"
+            parts.append(f"{label} {value}" if asset_count > 1 else value)
+            continue
         sign = "+" if delta > 0 else "-" if delta < 0 else "~"
         value = f"{sign}{abs(delta):.2f}%"
         parts.append(f"{label} {value}" if asset_count > 1 else value)

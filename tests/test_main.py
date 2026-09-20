@@ -17,6 +17,7 @@ from main import (
     change_since_previous,
     extract_alert_changes,
     format_alert_delta_title,
+    format_alert_delta_title,
     extract_previous_price_changes,
     format_trend_prefix,
     format_change,
@@ -75,6 +76,9 @@ def test_change_since_previous_is_consistent_for_both_assets_and_directions():
     )
     assert title == "🔴 XTM +0.20% | wXTM -1.30% — Alert XTM+12.75% | wXTM+16.7%"
     assert is_alert_title(title, upward=True)
+    assert format_alert_delta_title(
+        "Alert wXTM+18.7%", {"wXTM": -0.001}, asset_count=1
+    ) == "🟡 ~ — Alert wXTM+18.7%"
 
 
 def test_worker_alerts_include_only_affected_tokens_and_keep_one_direction_key():
