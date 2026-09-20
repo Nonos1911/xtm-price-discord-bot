@@ -6,14 +6,17 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 import update_once
 from update_once import (
     alert_milestone,
+    alert_changes_are_complete,
     alert_quotes_for_direction,
     build_alert_embed,
     build_embed,
     build_price_embed,
+    extract_previous_price_changes,
     format_alert_text,
     format_group_alert_text,
     price_text,
     select_usdt_ticker,
+    variation_trend_sign,
 )
 from pool_data import WXTM_NETWORK, WXTM_POOL_ADDRESS, parse_wxtm_pool_response
 
@@ -50,6 +53,22 @@ def test_embed_has_both_assets():
     assert build_price_embed([], "Snapshot du prix toutes les 4 heures")["footer"]["text"] == "Snapshot du prix toutes les 4 heures"
 
 
+def test_previous_price_changes_are_parsed_from_the_live_price_embed():
+    message = {"embeds": [{
+        "title": "💱 Prix XTM / wXTM",
+        "fields": [
+            {"name": "XTM", "value": "**0.001 USDT**\n+3.25 % sur 24 h\nMarché : MEXC"},
+            {"name": "wXTM", "value": "**0.002 USD**\n-12.50 % sur 24 h\nMarché : Uniswap"},
+        ],
+    }]}
+    assert extract_previous_price_changes(message) == {"XTM": 3.25, "wXTM": -12.5}
+    assert variation_trend_sign(3.5, 3.25) == "+"
+    assert variation_trend_sign(-11.5, -12.5) == "+"
+    assert variation_trend_sign(-13, -12.5) == "-"
+    assert variation_trend_sign(3.25, 3.25) == "="
+    assert variation_trend_sign(3.25, None) == "?"
+
+
 def test_alert_thresholds_are_inclusive_for_both_assets():
     quotes = [
         {"label": "XTM", "change": 9.99},
@@ -65,6 +84,18 @@ def test_alert_thresholds_are_inclusive_for_both_assets():
     assert alert_quotes_for_direction([{"label": "XTM", "change": 10.0}], upward=True)
     assert alert_quotes_for_direction([{"label": "wXTM", "change": -10.0}], upward=False)
     assert alert_quotes_for_direction([{"label": "unknown", "change": 500}], upward=True) == []
+
+
+def test_alert_data_must_be_complete_before_existing_alerts_can_be_cleared():
+    assert alert_changes_are_complete([
+        {"label": "XTM", "change": 4.9},
+        {"label": "wXTM", "change": -3.2},
+    ])
+    assert not alert_changes_are_complete([
+        {"label": "XTM", "change": 4.9},
+        {"label": "wXTM", "change": None},
+    ])
+    assert not alert_changes_are_complete([{"label": "XTM", "change": 4.9}])
 
 
 def test_group_alert_names_only_affected_assets_and_can_handle_both():
@@ -102,6 +133,13 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
     assert embed["title"] == "Alert wXTM+18.7%"
     assert [field["name"] for field in embed["fields"]] == ["wXTM"]
     assert "0.002428 USD" in embed["fields"][0]["value"]
+    trending_embed = build_alert_embed(
+        "Alert wXTM+18.7%",
+        5763719,
+        affected,
+        previous_changes={"wXTM": 18.8},
+    )
+    assert "Évolution vs relevé précédent :\n```diff\n-\n```" in trending_embed["fields"][0]["value"]
     assert format_alert_text(-10, upward=False) == "Alert XTM-10%  GO BUY"
     assert format_alert_text(10, upward=True) == "Alert XTM+10%"
     assert format_alert_text(15.678, upward=True) == "Alert XTM+15.68%"
@@ -183,18 +221,25 @@ def test_get_quote_for_wxtm_calls_only_the_configured_uniswap_pool(monkeypatch):
     assert quote["market"] == "Uniswap V4 (Ethereum)"
 
 
-def test_update_discord_reuses_one_price_message_and_removes_duplicates(monkeypatch):
+def test_update_discord_republishes_latest_price_box_and_removes_old_boxes(monkeypatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
     calls = []
     responses = iter(
         [
             {"id": "bot-id"},
             [
-                {"id": "new-price", "author": {"id": "bot-id"}, "embeds": [{"title": "💱 Prix XTM / wXTM"}]},
+                {"id": "new-price", "author": {"id": "bot-id"}, "embeds": [{
+                    "title": "💱 Prix XTM / wXTM",
+                    "fields": [
+                        {"name": "XTM", "value": "**0.001 USDT**\n+3.25 % sur 24 h\nMarché : MEXC"},
+                        {"name": "wXTM", "value": "**0.002 USD**\n-12.50 % sur 24 h\nMarché : Uniswap"},
+                    ],
+                }]},
                 {"id": "old-price", "author": {"id": "bot-id"}, "embeds": [{"title": "💱 Prix XTM / wXTM"}]},
                 {"id": "alert", "author": {"id": "bot-id"}, "embeds": [{"title": "Alert XTM+10%"}]},
             ],
-            {"id": "new-price"},
+            {"id": "fresh-price"},
+            None,
             None,
         ]
     )
@@ -204,11 +249,17 @@ def test_update_discord_reuses_one_price_message_and_removes_duplicates(monkeypa
         return next(responses)
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
-    result = update_once.update_discord({"title": "💱 Prix XTM / wXTM"})
+    previous_changes = {}
+    result = update_once.update_discord({"title": "💱 Prix XTM / wXTM"}, previous_changes=previous_changes)
 
-    assert result == "message new-price mis à jour; 1 ancien(s) supprimé(s)"
-    assert calls[2][1] == "PATCH"
+    assert result == "nouvelle box de prix fresh-price publiée; 2 ancienne(s) box supprimée(s)"
+    assert previous_changes == {"XTM": 3.25, "wXTM": -12.5}
+    assert calls[2][1] == "POST"
+    assert calls[2][2]["embeds"][0]["title"] == "💱 Prix XTM / wXTM"
     assert calls[3][1] == "DELETE"
+    assert calls[3][0].endswith("/new-price")
+    assert calls[4][1] == "DELETE"
+    assert calls[4][0].endswith("/old-price")
 
 
 def test_upsert_alert_replaces_previous_message_without_repinging_same_ten_percent_step(monkeypatch):
@@ -323,6 +374,54 @@ def test_upsert_alert_adds_everyone_once_to_legacy_message(monkeypatch):
     assert calls[2][2]["content"] == "@everyone"
     assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
     assert calls[3][1] == "DELETE"
+
+
+def test_clear_alert_removes_only_the_matching_production_direction(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    calls = []
+    responses = iter([
+        {"id": "bot-id"},
+        [
+            {"id": "green", "author": {"id": "bot-id"}, "embeds": [{"title": "Alert wXTM+16.67%"}]},
+            {"id": "red", "author": {"id": "bot-id"}, "embeds": [{"title": "Alert XTM-12%  GO BUY"}]},
+            {"id": "test", "author": {"id": "bot-id"}, "embeds": [{"title": "[TEST] Alert XTM+20%"}]},
+            {"id": "other-bot", "author": {"id": "other"}, "embeds": [{"title": "Alert XTM+20%"}]},
+        ],
+        None,
+    ])
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, method, body))
+        return next(responses)
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    result = update_once.clear_alert_if_below_threshold([
+        {"label": "XTM", "change": 4.0},
+        {"label": "wXTM", "change": -2.0},
+    ], upward=True)
+
+    assert result.startswith("alerte verte supprimée; 1 message(s) retiré(s)")
+    assert len(calls) == 3
+    assert calls[2][1] == "DELETE"
+    assert calls[2][0].endswith("/green")
+
+
+def test_clear_alert_keeps_message_when_market_data_is_incomplete(monkeypatch):
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+    result = update_once.clear_alert_if_below_threshold([
+        {"label": "XTM", "change": 4.0},
+        {"label": "wXTM", "change": None},
+    ], upward=True)
+    assert result == "données 24 h incomplètes; alerte conservée"
+
+
+def test_clear_alert_does_not_delete_while_that_direction_is_still_active(monkeypatch):
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+    result = update_once.clear_alert_if_below_threshold([
+        {"label": "XTM", "change": 12.0},
+        {"label": "wXTM", "change": -2.0},
+    ], upward=True)
+    assert result == "seuil toujours atteint; alerte conservée"
 
 
 def test_test_alert_label_is_separate_from_live_alert(monkeypatch):

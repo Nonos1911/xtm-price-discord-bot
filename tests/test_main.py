@@ -3,13 +3,18 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import discord
+
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from main import (
     CoinGeckoClient,
     PriceQuote,
+    alert_changes_are_complete,
     alert_milestone,
     alert_quotes_for_direction,
+    extract_previous_price_changes,
+    format_trend_marker,
     format_change,
     format_group_alert_text,
     format_price,
@@ -17,6 +22,7 @@ from main import (
     message_notified_milestone,
     parse_coin_config,
     select_usdt_ticker,
+    variation_trend_sign,
 )
 from pool_data import GECKOTERMINAL_BASE, WXTM_NETWORK, WXTM_POOL_ADDRESS
 
@@ -58,6 +64,30 @@ def test_worker_alerts_include_only_affected_tokens_and_keep_one_direction_key()
     assert is_alert_title("Alert XTM+10% | wXTM+17.19%", upward=True)
     assert is_alert_title("Alert wXTM-10%  GO BUY", upward=False)
     assert not is_alert_title("Alert wXTM-10%  GO BUY", upward=True)
+
+
+def test_worker_only_clears_alerts_with_complete_configured_market_data():
+    complete = [
+        PriceQuote("minotari", "XTM", 0.001, 4.0, "MEXC", "MEXC", 1),
+        PriceQuote("wrapped-minotari", "wXTM", 0.002, -3.0, "Uniswap", "Uniswap", 1),
+    ]
+    incomplete = [complete[0], PriceQuote("wrapped-minotari", "wXTM", None, None, None, "Uniswap", None)]
+
+    assert alert_changes_are_complete(complete, {"XTM", "wXTM"})
+    assert not alert_changes_are_complete(incomplete, {"XTM", "wXTM"})
+
+
+def test_worker_parses_previous_changes_and_calculates_trend_signs():
+    embed = discord.Embed(
+        title="💱 Prix XTM / wXTM",
+    )
+    embed.add_field(name="XTM", value="**0.001 USDT**\n+3.25 % sur 24 h\nMarché : MEXC")
+    embed.add_field(name="wXTM", value="**0.002 USD**\n-12.50 % sur 24 h\nMarché : Uniswap")
+    assert extract_previous_price_changes(embed) == {"XTM": 3.25, "wXTM": -12.5}
+    assert variation_trend_sign(-11.5, -12.5) == "+"
+    assert variation_trend_sign(-13.0, -12.5) == "-"
+    assert format_trend_marker("+") == "```diff\n+\n```"
+    assert format_trend_marker("-") == "```diff\n-\n```"
 
 
 def test_worker_alerts_can_trigger_both_assets_and_both_directions_independently():

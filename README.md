@@ -10,8 +10,9 @@ Le cours wXTM est lu directement dans ce pool par GeckoTerminal et affiché en
 USD (prix équivalent calculé par l'API depuis la paire wXTM/ETH) ; sa variation
 24 h pour les alertes vient également de ce pool. XTM reste lu sur MEXC en USDT.
 
-Il maintient un seul embed dans le salon Discord `1370700962695610430` et le
-met à jour toutes les minutes. Les anciens embeds de cours sont nettoyés. Le service est
+Il maintient une seule box dans le salon Discord `1370700962695610430` : à chaque
+cycle, il publie le nouveau message puis supprime les anciennes boxes afin que
+les cours restent en bas du salon. Le service est
 conçu pour fonctionner dans un worker cloud, donc ton PC peut être éteint.
 
 Le bot surveille séparément les variations 24 h de `XTM` et `wXTM` fournies par
@@ -22,11 +23,17 @@ alerte active, le bot publie un nouveau message puis supprime l'ancien pour
 faire remonter l'alerte en bas du salon. Chaque alerte ne
 nomme et n'affiche que les actifs qui ont franchi son seuil ; si les deux
 franchissent le même seuil, elle affiche les deux et leurs pourcentages/prix.
+Chaque actif dans la box affiche aussi un `+` vert ou un `-` rouge selon que
+sa variation 24 h a augmenté ou diminué depuis le relevé précédent (`=` si elle
+est identique, `?` si aucun relevé antérieur n'est disponible).
 Les deux directions peuvent déclencher lors de la même exécution. Les
 pourcentages affichés sont plafonnés à `+300 %` et `-300 %`. Quand un actif
 repasse sous le seuil, il disparaît de la prochaine mise à jour si un autre
-actif reste au-dessus ; si aucun ne le franchit, le message est laissé tel
-quel. `@everyone` ne notifie qu'aux paliers franchis de 10 % en 10 % (±10,
+actif reste au-dessus ; si aucun actif ne franchit encore le seuil, l'alerte
+de cette direction est supprimée de `mog-post`. Elle ne réapparaît qu'au
+prochain franchissement de `+10 %` ou `-10 %`. Une alerte est conservée si une
+variation 24 h configurée est momentanément indisponible. `@everyone` ne
+notifie qu'aux paliers franchis de 10 % en 10 % (±10,
 ±20, …, ±300), sans reping à chaque actualisation dans un même palier. Le
 dernier palier notifié est conservé dans le pied de l'embed pour éviter les
 doublons malgré le remplacement du message. Ce message est un signal automatique
@@ -67,7 +74,8 @@ s'endort ne garantit pas le rythme de 5 minutes.
 
 Le dossier contient aussi `.github/workflows/price-scheduler.yml`. Cette variante ne
 laisse pas un bot connecté en permanence : le planificateur externe démarre un job
-toutes les minutes, met à jour une seule embed dans le salon des prix, puis l'arrête. C'est gratuit sur un
+toutes les minutes, publie une nouvelle box dans le salon des prix, supprime
+l'ancienne, puis s'arrête. C'est gratuit sur un
 dépôt public et ne dépend pas de ton PC. Les horaires GitHub peuvent toutefois
 être décalés en période de charge.
 

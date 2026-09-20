@@ -26,6 +26,7 @@ PRICE_EMBED_TITLE = "💱 Prix XTM / wXTM"
 ALERT_PREFIX = "Alert "
 ALERT_MILESTONE_FOOTER = "Palier @everyone notifié : "
 ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)([+-])(\d+(?:\.\d+)?)%")
+PRICE_CHANGE_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)\s*%\s*sur 24 h", re.IGNORECASE)
 COINS = [("minotari", "XTM", "MEXC"), ("wrapped-minotari", "wXTM", "Uniswap V4")]
 
 
@@ -145,7 +146,42 @@ def price_text(quote: dict[str, Any]) -> str:
     change = quote["change"]
     change_text = "variation 24 h indisponible" if change is None else f"{change:+.2f} % sur 24 h"
     currency = quote.get("currency", "USDT")
-    return f"**{formatted} {currency}**\n{change_text}\nMarché : {quote['market']}"
+    lines = [f"**{formatted} {currency}**", change_text]
+    if quote.get("trend"):
+        marker = format_trend_marker(str(quote["trend"]))
+        lines.append(f"Évolution vs relevé précédent :\n{marker}")
+    lines.append(f"Marché : {quote['market']}")
+    return "\n".join(lines)
+
+
+def extract_previous_price_changes(message: dict[str, Any]) -> dict[str, float]:
+    """Read the prior 24 h percentages from the bot's persistent price embed."""
+    for embed in message.get("embeds", []):
+        if embed.get("title") != PRICE_EMBED_TITLE:
+            continue
+        changes: dict[str, float] = {}
+        for field in embed.get("fields", []):
+            match = PRICE_CHANGE_RE.search(str(field.get("value", "")))
+            if match:
+                changes[str(field.get("name", ""))] = float(match.group(1))
+        return changes
+    return {}
+
+
+def variation_trend_sign(current: float, previous: float | None) -> str:
+    if previous is None:
+        return "?"
+    if current > previous:
+        return "+"
+    if current < previous:
+        return "-"
+    return "="
+
+
+def format_trend_marker(sign: str) -> str:
+    if sign in {"+", "-"}:
+        return f"```diff\n{sign}\n```"
+    return f"`{sign}`"
 
 
 def build_embed(quotes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -163,7 +199,7 @@ def build_price_embed(quotes: list[dict[str, Any]], footer_text: str) -> dict[st
     }
 
 
-def update_discord(embed: dict[str, Any]) -> str:
+def update_discord(embed: dict[str, Any], *, previous_changes: dict[str, float] | None = None) -> str:
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN est absent")
@@ -180,26 +216,27 @@ def update_discord(embed: dict[str, Any]) -> str:
         if message.get("author", {}).get("id") == bot.get("id")
         and any(embed_item.get("title") == PRICE_EMBED_TITLE for embed_item in message.get("embeds", []))
     ]
-    if price_messages:
-        current = price_messages[0]
-        updated = api_json(
-            f"{DISCORD_BASE}/channels/{CHANNEL_ID}/messages/{current['id']}",
-            headers=headers,
-            method="PATCH",
-            body=payload,
+    if previous_changes is not None:
+        previous_changes.update(
+            extract_previous_price_changes(price_messages[0]) if price_messages else {}
         )
-        removed = 0
-        for duplicate in price_messages[1:]:
+    created = api_json(
+        f"{DISCORD_BASE}/channels/{CHANNEL_ID}/messages",
+        headers=headers,
+        method="POST",
+        body=payload,
+    )
+    removed = 0
+    if price_messages:
+        for old_message in price_messages:
             api_json(
-                f"{DISCORD_BASE}/channels/{CHANNEL_ID}/messages/{duplicate['id']}",
+                f"{DISCORD_BASE}/channels/{CHANNEL_ID}/messages/{old_message['id']}",
                 headers=headers,
                 method="DELETE",
             )
             removed += 1
-        suffix = f"; {removed} ancien(s) supprimé(s)" if removed else ""
-        return f"message {updated['id']} mis à jour{suffix}"
-    created = api_json(f"{DISCORD_BASE}/channels/{CHANNEL_ID}/messages", headers=headers, method="POST", body=payload)
-    return f"message {created['id']} créé"
+    suffix = f"; {removed} ancienne(s) box supprimée(s)" if removed else ""
+    return f"nouvelle box de prix {created['id']} publiée{suffix}"
 
 
 def publish_snapshot(embed: dict[str, Any]) -> str:
@@ -224,6 +261,7 @@ def build_alert_embed(
     *,
     notified_milestone: int | None = None,
     upward: bool = True,
+    previous_changes: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     embed = {
         "title": text,
@@ -233,6 +271,14 @@ def build_alert_embed(
     if quotes is not None:
         alert_quotes = []
         for quote in quotes:
+            if quote.get("change") is not None:
+                quote = {
+                    **quote,
+                    "trend": variation_trend_sign(
+                        float(quote["change"]),
+                        (previous_changes or {}).get(str(quote["label"])),
+                    ),
+                }
             if quote["change"] is not None:
                 magnitude = min(300.0, max(ALERT_THRESHOLD_PERCENT, abs(float(quote["change"]))))
                 bounded_change = -magnitude if float(quote["change"]) < 0 else magnitude
@@ -261,6 +307,16 @@ def alert_quotes_for_direction(quotes: list[dict[str, Any]], *, upward: bool) ->
         if triggered:
             affected.append(quote)
     return affected
+
+
+def alert_changes_are_complete(quotes: list[dict[str, Any]]) -> bool:
+    """Do not clear an alert based on a partial/failed market response."""
+    by_label = {quote.get("label"): quote for quote in quotes}
+    labels = {label for _, label, _ in COINS}
+    return bool(labels) and all(
+        label in by_label and by_label[label].get("change") is not None
+        for label in labels
+    )
 
 
 def format_alert_text(change: float, *, upward: bool, label: str = "XTM") -> str:
@@ -333,6 +389,7 @@ def upsert_alert(
     upward: bool,
     test_label: str | None = None,
     notify_everyone: bool = True,
+    previous_changes: dict[str, float] | None = None,
 ) -> str:
     """Publish a fresh alert each run, removing older copies and pinging at 10% steps."""
     token = os.getenv("DISCORD_BOT_TOKEN")
@@ -369,6 +426,7 @@ def upsert_alert(
             quotes,
             notified_milestone=stored_milestone,
             upward=upward,
+            previous_changes=previous_changes,
         )],
         "allowed_mentions": {"parse": ["everyone"]} if should_notify else {"parse": []},
     }
@@ -393,6 +451,46 @@ def upsert_alert(
     suffix = f"; {removed} ancienne(s) alerte(s) supprimée(s)" if removed else ""
     ping = f"; @everyone palier {('+' if upward else '-')}{current_milestone}%" if should_notify else ""
     return f"nouveau message d'alerte {created['id']} publié{suffix}{ping}"
+
+
+def clear_alert_if_below_threshold(quotes: list[dict[str, Any]], *, upward: bool) -> str:
+    """Delete the production alert after all tracked changes leave its threshold zone."""
+    if not alert_changes_are_complete(quotes):
+        return "données 24 h incomplètes; alerte conservée"
+    if alert_quotes_for_direction(quotes, upward=upward):
+        return "seuil toujours atteint; alerte conservée"
+
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("DISCORD_BOT_TOKEN est absent")
+    headers = {"Authorization": f"Bot {token}"}
+    bot = api_json(f"{DISCORD_BASE}/users/@me", headers=headers)
+    messages = api_json(
+        f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages?limit=100",
+        headers=headers,
+    )
+    matching = [
+        message
+        for message in messages
+        if message.get("author", {}).get("id") == bot.get("id")
+        and any(
+            _is_alert_title(str(embed.get("title", "")), upward=upward, test_label=None)
+            for embed in message.get("embeds", [])
+        )
+    ]
+    for message in matching:
+        api_json(
+            f"{DISCORD_BASE}/channels/{ALERT_CHANNEL_ID}/messages/{message['id']}",
+            headers=headers,
+            method="DELETE",
+        )
+    direction = "verte" if upward else "rouge"
+    if not matching:
+        return f"aucune alerte {direction} active à supprimer"
+    return (
+        f"alerte {direction} supprimée; {len(matching)} message(s) retiré(s) "
+        f"car le seuil de ±{ALERT_THRESHOLD_PERCENT:g} % n'est plus atteint"
+    )
 
 
 def run_fake_alert_progression() -> None:
@@ -485,7 +583,8 @@ def main() -> int:
         snapshot = build_price_embed(quotes, "Snapshot du prix toutes les 4 heures")
         print(publish_snapshot(snapshot))
         return 0
-    print(update_discord(embed))
+    previous_changes: dict[str, float] = {}
+    print(update_discord(embed, previous_changes=previous_changes))
     if os.getenv("TEST_ALERTS", "").strip().lower() == "both_once":
         print("Test manuel: envoi unique des alertes verte et rouge dans mog-post")
         for upward, color in ((True, 5763719), (False, 15158332)):
@@ -496,20 +595,17 @@ def main() -> int:
             ]
             affected = alert_quotes_for_direction(simulated, upward=upward)
             text = format_group_alert_text(affected, upward=upward)
-            print(upsert_alert(text, color, affected, upward=upward))
+            print(upsert_alert(text, color, affected, upward=upward, previous_changes=previous_changes))
         return 0
-    triggered = False
     for upward, color in ((True, 5763719), (False, 15158332)):
         affected = alert_quotes_for_direction(quotes, upward=upward)
         if not affected:
+            print(clear_alert_if_below_threshold(quotes, upward=upward))
             continue
-        triggered = True
         text = format_group_alert_text(affected, upward=upward)
         description = ", ".join(f"{quote['label']} {float(quote['change']):+.2f}%" for quote in affected)
         print(f"Variation 24 h détectée ({description}); lancement de l'alerte")
-        print(upsert_alert(text, color, affected, upward=upward))
-    if not triggered:
-        print("XTM et wXTM sont sous les seuils de ±10 %; alertes existantes laissées inchangées")
+        print(upsert_alert(text, color, affected, upward=upward, previous_changes=previous_changes))
     return 0
 
 

@@ -28,6 +28,8 @@ LOGGER = logging.getLogger("xtm-price-bot")
 ALERT_PREFIX = "Alert "
 ALERT_MILESTONE_FOOTER = "Palier @everyone notifié : "
 ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)([+-])(\d+(?:\.\d+)?)%")
+PRICE_EMBED_TITLE = "💱 Prix XTM / wXTM"
+PRICE_CHANGE_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)\s*%\s*sur 24 h", re.IGNORECASE)
 
 
 def env_int(name: str, default: int) -> int:
@@ -108,6 +110,33 @@ def format_change(value: float | None) -> str:
     return f"{value:+.2f} % sur 24 h"
 
 
+def variation_trend_sign(current: float, previous: float | None) -> str:
+    if previous is None:
+        return "?"
+    if current > previous:
+        return "+"
+    if current < previous:
+        return "-"
+    return "="
+
+
+def format_trend_marker(sign: str) -> str:
+    if sign in {"+", "-"}:
+        return f"```diff\n{sign}\n```"
+    return f"`{sign}`"
+
+
+def extract_previous_price_changes(embed: discord.Embed) -> dict[str, float]:
+    if embed.title != PRICE_EMBED_TITLE:
+        return {}
+    changes: dict[str, float] = {}
+    for field in embed.fields:
+        match = PRICE_CHANGE_RE.search(field.value)
+        if match:
+            changes[field.name] = float(match.group(1))
+    return changes
+
+
 def format_alert_text(change: float, *, upward: bool, threshold: float, label: str = "XTM") -> str:
     magnitude = min(300.0, max(threshold, abs(float(change))))
     percent = f"{magnitude:.2f}".rstrip("0").rstrip(".")
@@ -129,6 +158,15 @@ def alert_quotes_for_direction(
         if triggered:
             affected.append(quote)
     return affected
+
+
+def alert_changes_are_complete(quotes: list["PriceQuote"], labels: set[str]) -> bool:
+    """Avoid deleting a live alert when any configured 24 h change is unavailable."""
+    by_label = {quote.label: quote for quote in quotes}
+    return bool(labels) and all(
+        label in by_label and by_label[label].change_24h is not None
+        for label in labels
+    )
 
 
 def format_group_alert_text(
@@ -379,7 +417,7 @@ class PriceBot(discord.Client):
             channel = await super().fetch_channel(channel_id)
         return channel
 
-    async def upsert_alert(self, text: str, colour: discord.Colour, quotes: list[PriceQuote], *, upward: bool) -> None:
+    async def upsert_alert(self, text: str, colour: discord.Colour, quotes: list[PriceQuote], *, upward: bool, previous_changes: dict[str, float] | None = None) -> None:
         channel = await self.resolve_channel(self.alert_channel_id)
         alert_embed = discord.Embed(
             title=text,
@@ -397,6 +435,18 @@ class PriceBot(discord.Client):
                 value = f"**{format_price(quote.price, quote.currency)}**\n{format_change(display_change)}"
                 if quote.market:
                     value += f"\nMarché : {quote.market}"
+            if quote.change_24h is not None:
+                trend = variation_trend_sign(
+                    quote.change_24h,
+                    (previous_changes or {}).get(quote.label),
+                )
+                marker = format_trend_marker(trend)
+                value = value.replace(
+                    "\nMarché :",
+                    f"\nÉvolution vs relevé précédent :\n{marker}\nMarché :",
+                )
+                if "\nMarché :" not in value:
+                    value += f"\nÉvolution vs relevé précédent :\n{marker}"
             alert_embed.add_field(name=quote.label, value=value, inline=True)
 
         bot_id = self.user.id if self.user else None
@@ -440,16 +490,51 @@ class PriceBot(discord.Client):
             ping,
         )
 
-    def start_alert_if_needed(self, quotes: list[PriceQuote]) -> None:
+    async def clear_alert_if_below_threshold(self, quotes: list[PriceQuote], *, upward: bool) -> None:
+        labels = {label for _, label, _ in self.coins}
+        if not alert_changes_are_complete(quotes, labels):
+            LOGGER.warning("Alerte %s conservée : variation 24 h incomplète", "verte" if upward else "rouge")
+            return
+        if alert_quotes_for_direction(quotes, upward=upward, threshold=self.alert_threshold):
+            return
+
+        channel = await self.resolve_channel(self.alert_channel_id)
+        bot_id = self.user.id if self.user else None
+        history = getattr(channel, "history", None)
+        if bot_id is None or history is None:
+            return
+
+        removed = 0
+        async for message in history(limit=100):
+            if message.author.id != bot_id:
+                continue
+            if not any(embed.title and is_alert_title(embed.title, upward=upward) for embed in message.embeds):
+                continue
+            await message.delete()
+            removed += 1
+        if removed:
+            LOGGER.info(
+                "Alerte %s supprimée : retour sous le seuil de ±%s %% (%s message(s))",
+                "verte" if upward else "rouge",
+                self.alert_threshold,
+                removed,
+            )
+
+    def start_alert_if_needed(self, quotes: list[PriceQuote], previous_changes: dict[str, float] | None = None) -> None:
         for upward, colour in ((True, discord.Colour.green()), (False, discord.Colour.red())):
             affected = alert_quotes_for_direction(quotes, upward=upward, threshold=self.alert_threshold)
             if not affected:
+                task = self.alert_tasks[upward]
+                if task is None or task.done():
+                    self.alert_tasks[upward] = asyncio.create_task(
+                        self.clear_alert_if_below_threshold(quotes, upward=upward)
+                    )
                 continue
             text = format_group_alert_text(affected, upward=upward, threshold=self.alert_threshold)
             task = self.alert_tasks[upward]
             if task is None or task.done():
                 self.alert_tasks[upward] = asyncio.create_task(
-                    self.upsert_alert(text, colour, affected, upward=upward)
+                    self.upsert_alert(text, colour, affected, upward=upward, previous_changes=previous_changes)
                 )
                 changes = ", ".join(
                     f"{quote.label} {quote.change_24h:+.2f}%"
@@ -467,8 +552,25 @@ class PriceBot(discord.Client):
             LOGGER.error("Aucun prix valide disponible; le message Discord n'est pas remplacé")
             return
 
+        previous_changes: dict[str, float] = {}
+        old_price_messages: list[discord.Message] = []
+        bot_id = self.user.id if self.user else None
+        history = getattr(channel, "history", None)
+        if bot_id is not None and history is not None:
+            found_previous_price_embed = False
+            async for old_message in history(limit=100):
+                if old_message.author.id != bot_id:
+                    continue
+                for old_embed in old_message.embeds:
+                    if old_embed.title == PRICE_EMBED_TITLE:
+                        old_price_messages.append(old_message)
+                        if not found_previous_price_embed:
+                            previous_changes = extract_previous_price_changes(old_embed)
+                        found_previous_price_embed = True
+                        break
+
         embed = discord.Embed(
-            title="💱 Prix XTM / wXTM",
+            title=PRICE_EMBED_TITLE,
             description="XTM/USDT sur MEXC ; wXTM/USD depuis son pool Uniswap V4.",
             colour=discord.Colour.blue(),
             timestamp=datetime.now(timezone.utc),
@@ -482,8 +584,16 @@ class PriceBot(discord.Client):
                     value += f"\nMarché : {quote.market}"
             embed.add_field(name=quote.label, value=value, inline=True)
         embed.set_footer(text=f"Nouveau message toutes les {self.interval_minutes} minutes")
-        await channel.send(embed=embed)  # type: ignore[attr-defined]
-        self.start_alert_if_needed(quotes)
+        created = await channel.send(embed=embed)  # type: ignore[attr-defined]
+        for old_message in old_price_messages:
+            await old_message.delete()
+        if old_price_messages:
+            LOGGER.info(
+                "Nouvelle box de prix publiée (%s); %s ancienne(s) box supprimée(s)",
+                created.id,
+                len(old_price_messages),
+            )
+        self.start_alert_if_needed(quotes, previous_changes)
         LOGGER.info("Prix publiés dans le salon %s", self.channel_id)
 
 
