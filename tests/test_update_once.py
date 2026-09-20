@@ -26,7 +26,14 @@ from update_once import (
     select_usdt_ticker,
     variation_trend_sign,
 )
-from pool_data import WXTM_NETWORK, WXTM_POOL_ADDRESS, parse_wxtm_pool_response
+from pool_data import (
+    MEXC_KLINE_BASE,
+    WXTM_NETWORK,
+    WXTM_POOL_ADDRESS,
+    parse_mexc_1h_change,
+    parse_wxtm_pool_response,
+)
+from settings import parse_alerts_paused, parse_upward_alert_threshold
 
 POOL_RESPONSE = {
     "data": {
@@ -35,7 +42,7 @@ POOL_RESPONSE = {
             "address": "0x530581e8b4dff575d96af96cbfb74d0cc4ed0ec0cb7c953f491c7a60a787412d",
             "name": "wXTM / ETH 3%",
             "base_token_price_usd": "0.002428",
-            "price_change_percentage": {"h24": "17.33"},
+            "price_change_percentage": {"h1": "2.50", "h24": "17.33"},
         },
     }
 }
@@ -50,6 +57,18 @@ def test_select_usdt_ticker():
     assert selected["market"] == "MEXC"
 
 
+def test_select_usdt_ticker_keeps_pair_symbols_for_hourly_candles():
+    selected = select_usdt_ticker([{
+        "base": "XTM",
+        "target": "USDT",
+        "last": "0.01",
+        "volume": 10,
+        "market": {"name": "MEXC"},
+    }], "MEXC")
+    assert selected["base"] == "XTM"
+    assert selected["target"] == "USDT"
+
+
 def test_embed_has_both_assets():
     embed = build_embed([
         {"label": "XTM", "price": 0.001, "change": 1.5, "market": "MEXC", "error": None},
@@ -61,6 +80,14 @@ def test_embed_has_both_assets():
     assert "0.00243 USDT" in price_text({"label": "wXTM", "price": 0.002428, "currency": "USD", "change": 1.5, "market": "Uniswap", "error": None})
     assert embed["footer"]["text"] == "Mise à jour toutes les minutes"
     assert build_price_embed([], "Snapshot du prix toutes les 4 heures")["footer"]["text"] == "Snapshot du prix toutes les 4 heures"
+
+
+def test_price_text_shows_hourly_variation_after_daily_variation():
+    text = price_text({
+        "label": "XTM", "price": 0.00123, "currency": "USDT",
+        "change": 12.34, "change_1h": -0.56, "market": "MEXC", "error": None,
+    })
+    assert text.splitlines()[1:3] == ["+12.34 % sur 24 h", "-0.56 % sur 1 h"]
 
 
 def test_previous_price_changes_are_parsed_from_the_live_price_embed():
@@ -106,6 +133,45 @@ def test_alert_thresholds_are_inclusive_for_both_assets():
     assert alert_quotes_for_direction([{"label": "XTM", "change": 10.0}], upward=True)
     assert alert_quotes_for_direction([{"label": "wXTM", "change": -10.0}], upward=False)
     assert alert_quotes_for_direction([{"label": "unknown", "change": 500}], upward=True) == []
+
+
+def test_manual_threshold_changes_upside_only(monkeypatch):
+    monkeypatch.setattr(update_once, "ALERT_THRESHOLD_PERCENT", 20.0)
+    quotes = [
+        {"label": "XTM", "change": 15.0},
+        {"label": "wXTM", "change": 20.0},
+    ]
+    assert [q["label"] for q in alert_quotes_for_direction(quotes, upward=True)] == ["wXTM"]
+    assert alert_quotes_for_direction([{"label": "XTM", "change": -10.0}], upward=False)
+    assert format_group_alert_text([quotes[1]], upward=True) == "Alerte wXTM +20%"
+
+
+def test_pause_keeps_price_updates_but_skips_alert_creation_and_cleanup(monkeypatch):
+    monkeypatch.setenv("ALERTS_PAUSED", "true")
+    monkeypatch.setenv("TEST_ALERTS", "none")
+    monkeypatch.setenv("SNAPSHOT_ONLY", "false")
+    quotes = [
+        {"label": "XTM", "price": 0.001, "change": 25.0, "change_1h": 1.0,
+         "currency": "USDT", "market": "MEXC", "error": None},
+        {"label": "wXTM", "price": 0.002, "change": 5.0, "change_1h": -1.0,
+         "currency": "USD", "market": "Uniswap V4", "error": None},
+    ]
+    monkeypatch.setattr(update_once, "get_quote", lambda *_args: quotes.pop(0))
+    updated = []
+    monkeypatch.setattr(update_once, "update_discord", lambda embed, **_kwargs: updated.append(embed) or "updated")
+    monkeypatch.setattr(update_once, "upsert_alert", lambda *_args, **_kwargs: pytest.fail("pause must block alert posts"))
+    monkeypatch.setattr(update_once, "clear_alert_if_below_threshold", lambda *_args, **_kwargs: pytest.fail("pause must preserve existing alerts"))
+
+    assert update_once.main() == 0
+    assert len(updated) == 1
+
+
+def test_pause_blocks_simulated_alert_sends_too(monkeypatch):
+    monkeypatch.setenv("ALERTS_PAUSED", "true")
+    monkeypatch.setenv("TEST_ALERTS", "both_once")
+    monkeypatch.setattr(update_once, "run_both_alert_tests", lambda *_args: pytest.fail("paused tests must not post"))
+
+    assert update_once.main() == 0
 
 
 def test_alert_data_must_be_complete_before_existing_alerts_can_be_cleared():
@@ -254,10 +320,46 @@ def test_parse_geckoterminal_wxtm_pool_response_uses_usd_and_pool_variation():
         "price": 0.002428,
         "currency": "USD",
         "change": 17.33,
+        "change_1h": 2.5,
         "market": "Uniswap V4 (Ethereum)",
         "updated": None,
         "error": None,
     }
+
+
+def test_mexc_one_hour_change_uses_recent_one_minute_candle_close():
+    now_ms = 10_000_000
+    target_ms = now_ms - 60 * 60 * 1000
+    candles = [
+        [target_ms - 60_000, "5", "5", "5", "5.0"],
+        [now_ms - 60_000, "5.4", "5.5", "5.3", "5.4"],
+    ]
+    assert parse_mexc_1h_change(candles, 5.5, now_ms=now_ms) == pytest.approx(10.0)
+    assert parse_mexc_1h_change(candles[:1], 5.5, now_ms=now_ms) is None
+
+
+def test_get_quote_xtm_requests_mexc_hourly_candles(monkeypatch):
+    calls = []
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append(url)
+        if "/simple/price?" in url:
+            return {"minotari": {"usd": 0.001, "usd_24h_change": 5.0, "last_updated_at": 123}}
+        if "/tickers?" in url:
+            return {"tickers": [{
+                "base": "XTM", "target": "USDT", "last": "0.001", "volume": 100,
+                "market": {"name": "MEXC"},
+            }]}
+        return [[0, "0", "0", "0", "0.001"]]
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    monkeypatch.setattr(update_once, "parse_mexc_1h_change", lambda candles, price: 1.25)
+    quote = update_once.get_quote("minotari", "XTM", "MEXC")
+
+    assert quote["change_1h"] == 1.25
+    assert f"{MEXC_KLINE_BASE}/api/v3/klines?" in calls[2]
+    assert "symbol=XTMUSDT" in calls[2]
+    assert "interval=1m" in calls[2]
 
 
 def test_parse_geckoterminal_rejects_a_different_pool():

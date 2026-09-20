@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from main import (
     CoinGeckoClient,
+    PriceBot,
     PriceQuote,
     alert_changes_are_complete,
     alert_milestone,
@@ -55,6 +56,7 @@ def test_formatters():
     assert format_price(0.00123456, label="XTM") == "0.00123 USDT"
     assert format_price(0.002428, "USD", label="wXTM") == "0.00243 USDT"
     assert format_change(-2.5) == "-2.50 % sur 24 h"
+    assert format_change(1.25, hours=1) == "+1.25 % sur 1 h"
 
 
 def test_change_since_previous_is_consistent_for_both_assets_and_directions():
@@ -152,6 +154,27 @@ def test_worker_alerts_can_trigger_both_assets_and_both_directions_independently
     assert [quote.label for quote in rising] == ["XTM"]
     assert [quote.label for quote in falling] == ["wXTM"]
     assert format_group_alert_text(falling, upward=False, threshold=10) == "Alerte wXTM -17.19%  GO BUY"
+
+
+def test_paused_live_worker_does_not_schedule_alert_or_cleanup_tasks(tmp_path):
+    bot = PriceBot(
+        channel_id=1,
+        alert_channel_id=2,
+        coins=[("minotari", "XTM", "MEXC"), ("wrapped-minotari", "wXTM", "Uniswap V4")],
+        state_file=tmp_path / "state.json",
+        interval_minutes=5,
+        alert_threshold=20,
+        alerts_paused=True,
+        intents=discord.Intents.none(),
+    )
+    quotes = [
+        PriceQuote("minotari", "XTM", 0.001, 30.0, "MEXC", "MEXC", 1),
+        PriceQuote("wrapped-minotari", "wXTM", 0.002, -15.0, "Uniswap", "Uniswap V4", 1),
+    ]
+
+    bot.start_alert_if_needed(quotes)
+
+    assert bot.alert_tasks == {True: None, False: None}
 
 
 def test_worker_everyone_notifications_follow_ten_percent_steps():

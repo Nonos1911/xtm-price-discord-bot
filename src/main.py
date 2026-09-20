@@ -21,7 +21,20 @@ from typing import Any
 import aiohttp
 import discord
 from discord.ext import tasks
-from pool_data import GECKOTERMINAL_BASE, WXTM_NETWORK, WXTM_POOL_ADDRESS, parse_wxtm_pool_response
+from pool_data import (
+    GECKOTERMINAL_BASE,
+    MEXC_KLINE_BASE,
+    WXTM_NETWORK,
+    WXTM_POOL_ADDRESS,
+    parse_mexc_1h_change,
+    parse_wxtm_pool_response,
+)
+from settings import (
+    DEFAULT_UPWARD_ALERT_THRESHOLD,
+    parse_alerts_paused,
+    parse_upward_alert_threshold,
+    threshold_for_direction,
+)
 
 
 LOGGER = logging.getLogger("xtm-price-bot")
@@ -110,10 +123,10 @@ def format_price(value: float | None, currency: str = "USDT", *, label: str | No
     return f"{value:.10f}".rstrip("0").rstrip(".") + f" {currency}"
 
 
-def format_change(value: float | None) -> str:
+def format_change(value: float | None, *, hours: int = 24) -> str:
     if value is None:
-        return "variation 24 h indisponible"
-    return f"{value:+.2f} % sur 24 h"
+        return f"variation {hours} h indisponible"
+    return f"{value:+.2f} % sur {hours} h"
 
 
 def variation_trend_sign(current: float, previous: float | None) -> str:
@@ -235,7 +248,14 @@ def format_milestone_footer(notified_milestone: int, *, upward: bool) -> str:
     )
 
 
-def format_alert_text(change: float, *, upward: bool, threshold: float, label: str = "XTM") -> str:
+def format_alert_text(
+    change: float,
+    *,
+    upward: bool,
+    threshold: float | None = None,
+    label: str = "XTM",
+) -> str:
+    threshold = threshold or (DEFAULT_UPWARD_ALERT_THRESHOLD if upward else 10.0)
     magnitude = min(300.0, max(threshold, abs(float(change))))
     percent = f"{magnitude:.2f}".rstrip("0").rstrip(".")
     if upward:
@@ -244,8 +264,9 @@ def format_alert_text(change: float, *, upward: bool, threshold: float, label: s
 
 
 def alert_quotes_for_direction(
-    quotes: list["PriceQuote"], *, upward: bool, threshold: float
+    quotes: list["PriceQuote"], *, upward: bool, threshold: float | None = None
 ) -> list["PriceQuote"]:
+    threshold = threshold or (DEFAULT_UPWARD_ALERT_THRESHOLD if upward else 10.0)
     by_label = {quote.label: quote for quote in quotes}
     affected: list[PriceQuote] = []
     for label in ("XTM", "wXTM"):
@@ -268,8 +289,9 @@ def alert_changes_are_complete(quotes: list["PriceQuote"], labels: set[str]) -> 
 
 
 def format_group_alert_text(
-    quotes: list["PriceQuote"], *, upward: bool, threshold: float
+    quotes: list["PriceQuote"], *, upward: bool, threshold: float | None = None
 ) -> str:
+    threshold = threshold or (DEFAULT_UPWARD_ALERT_THRESHOLD if upward else 10.0)
     components = [
         format_alert_text(
             quote.change_24h, upward=upward, threshold=threshold, label=quote.label
@@ -324,6 +346,7 @@ class PriceQuote:
     updated_at: int | None
     error: str | None = None
     currency: str = "USDT"
+    change_1h: float | None = None
 
 
 class CoinGeckoClient:
@@ -379,6 +402,30 @@ class CoinGeckoClient:
                     await asyncio.sleep(1.5 * (attempt + 1))
         raise RuntimeError(f"Pool wXTM/ETH indisponible : {last_error}") from last_error
 
+    async def get_mexc_1h_change(self, symbol: str, current_price: float) -> float | None:
+        """Compute a rolling one-hour return using public MEXC 1-minute candles."""
+        url = f"{MEXC_KLINE_BASE}/api/v3/klines"
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                async with self.session.get(
+                    url,
+                    params={"symbol": symbol, "interval": "1m", "limit": "100"},
+                    headers={"User-Agent": "xtm-price-discord-bot/1.0"},
+                ) as response:
+                    if response.status == 429:
+                        retry_after = response.headers.get("Retry-After")
+                        delay = float(retry_after) if retry_after else 2.0 * (attempt + 1)
+                        await asyncio.sleep(min(delay, 20.0))
+                        continue
+                    response.raise_for_status()
+                    return parse_mexc_1h_change(await response.json(), current_price)
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+                last_error = exc
+                if attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+        raise RuntimeError(f"Chandelles MEXC 1 m indisponibles pour {symbol}: {last_error}") from last_error
+
     async def quote(self, coin_id: str, label: str, preferred_market: str) -> PriceQuote:
         if label == "wXTM":
             try:
@@ -388,6 +435,7 @@ class CoinGeckoClient:
                     label=label,
                     price=pool_quote["price"],
                     change_24h=pool_quote["change"],
+                    change_1h=pool_quote["change_1h"],
                     market=pool_quote["market"],
                     preferred_market=preferred_market,
                     updated_at=None,
@@ -426,11 +474,23 @@ class CoinGeckoClient:
             )
             coin_data = simple.get(coin_id, {})
             ticker = select_usdt_ticker(tickers.get("tickers", []), preferred_market)
+            change_1h = None
+            if ticker and preferred_market.lower() == "mexc":
+                base = str(ticker.get("base", "")).strip().upper()
+                target = str(ticker.get("target", "")).strip().upper()
+                if base and target and ticker["_last_float"] > 0:
+                    try:
+                        change_1h = await self.get_mexc_1h_change(
+                            f"{base}{target}", ticker["_last_float"]
+                        )
+                    except Exception as exc:
+                        LOGGER.warning("Variation XTM sur 1 h indisponible via MEXC : %s", exc)
             return PriceQuote(
                 coin_id=coin_id,
                 label=label,
                 price=ticker["_last_float"] if ticker else None,
                 change_24h=coin_data.get("usd_24h_change"),
+                change_1h=change_1h,
                 market=(ticker.get("market", {}).get("name") if ticker else None),
                 preferred_market=preferred_market,
                 updated_at=coin_data.get("last_updated_at"),
@@ -451,7 +511,7 @@ class CoinGeckoClient:
 
 
 class PriceBot(discord.Client):
-    def __init__(self, *, channel_id: int, alert_channel_id: int, coins: list[tuple[str, str, str]], state_file: Path, interval_minutes: int, alert_threshold: float, **kwargs: Any) -> None:
+    def __init__(self, *, channel_id: int, alert_channel_id: int, coins: list[tuple[str, str, str]], state_file: Path, interval_minutes: int, alert_threshold: float, alerts_paused: bool = False, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.channel_id = channel_id
         self.alert_channel_id = alert_channel_id
@@ -459,6 +519,7 @@ class PriceBot(discord.Client):
         self.state_file = state_file
         self.interval_minutes = interval_minutes
         self.alert_threshold = alert_threshold
+        self.alerts_paused = alerts_paused
         self.alert_tasks: dict[bool, asyncio.Task[None] | None] = {True: None, False: None}
         self.http_session: aiohttp.ClientSession | None = None
         self.price_client: CoinGeckoClient | None = None
@@ -601,11 +662,12 @@ class PriceBot(discord.Client):
         )
 
     async def clear_alert_if_below_threshold(self, quotes: list[PriceQuote], *, upward: bool) -> None:
+        threshold = threshold_for_direction(upward, self.alert_threshold)
         labels = {label for _, label, _ in self.coins}
         if not alert_changes_are_complete(quotes, labels):
             LOGGER.warning("Alerte %s conservée : variation 24 h incomplète", "verte" if upward else "rouge")
             return
-        if alert_quotes_for_direction(quotes, upward=upward, threshold=self.alert_threshold):
+        if alert_quotes_for_direction(quotes, upward=upward, threshold=threshold):
             return
 
         channel = await self.resolve_channel(self.alert_channel_id)
@@ -624,15 +686,19 @@ class PriceBot(discord.Client):
             removed += 1
         if removed:
             LOGGER.info(
-                "Alerte %s supprimée : retour sous le seuil de ±%s %% (%s message(s))",
+                "Alerte %s supprimée : retour sous le seuil de %s %% (%s message(s))",
                 "verte" if upward else "rouge",
-                self.alert_threshold,
+                threshold if upward else -threshold,
                 removed,
             )
 
     def start_alert_if_needed(self, quotes: list[PriceQuote], previous_changes: dict[str, float] | None = None) -> None:
+        if self.alerts_paused:
+            LOGGER.info("Alertes de mog-post en pause; les alertes affichées sont conservées")
+            return
         for upward, colour in ((True, discord.Colour.green()), (False, discord.Colour.red())):
-            affected = alert_quotes_for_direction(quotes, upward=upward, threshold=self.alert_threshold)
+            threshold = threshold_for_direction(upward, self.alert_threshold)
+            affected = alert_quotes_for_direction(quotes, upward=upward, threshold=threshold)
             if not affected:
                 task = self.alert_tasks[upward]
                 if task is None or task.done():
@@ -640,7 +706,7 @@ class PriceBot(discord.Client):
                         self.clear_alert_if_below_threshold(quotes, upward=upward)
                     )
                 continue
-            text = format_group_alert_text(affected, upward=upward, threshold=self.alert_threshold)
+            text = format_group_alert_text(affected, upward=upward, threshold=threshold)
             task = self.alert_tasks[upward]
             if task is None or task.done():
                 self.alert_tasks[upward] = asyncio.create_task(
@@ -689,7 +755,11 @@ class PriceBot(discord.Client):
             if quote.price is None:
                 value = f"Indisponible — {quote.error or 'marché indisponible'}"
             else:
-                value = f"**{format_price(quote.price, quote.currency, label=quote.label)}**\n{format_change(quote.change_24h)}"
+                value = (
+                    f"**{format_price(quote.price, quote.currency, label=quote.label)}**\n"
+                    f"{format_change(quote.change_24h)}\n"
+                    f"{format_change(quote.change_1h, hours=1)}"
+                )
                 if quote.market:
                     value += f"\nMarché : {quote.market}"
             embed.add_field(name=quote.label, value=value, inline=True)
@@ -718,7 +788,8 @@ def main() -> None:
         raise SystemExit("INTERVAL_MINUTES doit être au moins égal à 5")
     coins = parse_coin_config(os.getenv("COINS", "minotari:XTM:MEXC,wrapped-minotari:wXTM:Uniswap V4"))
     alert_channel_id = env_int("ALERT_CHANNEL_ID", 1163364187796426776)
-    alert_threshold = float(os.getenv("ALERT_THRESHOLD_PERCENT", "10"))
+    alert_threshold = parse_upward_alert_threshold(os.getenv("ALERT_THRESHOLD_PERCENT"))
+    alerts_paused = parse_alerts_paused(os.getenv("ALERTS_PAUSED"))
     state_file = Path(os.getenv("STATE_FILE", "/data/state.json"))
     intents = discord.Intents.none()
     bot = PriceBot(
@@ -728,6 +799,7 @@ def main() -> None:
         state_file=state_file,
         interval_minutes=interval,
         alert_threshold=alert_threshold,
+        alerts_paused=alerts_paused,
         intents=intents,
     )
     bot.run(token, log_handler=None)

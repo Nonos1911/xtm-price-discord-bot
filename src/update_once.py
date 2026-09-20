@@ -14,14 +14,26 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
-from pool_data import GECKOTERMINAL_BASE, WXTM_NETWORK, WXTM_POOL_ADDRESS, parse_wxtm_pool_response
+from pool_data import (
+    GECKOTERMINAL_BASE,
+    MEXC_KLINE_BASE,
+    WXTM_NETWORK,
+    WXTM_POOL_ADDRESS,
+    parse_mexc_1h_change,
+    parse_wxtm_pool_response,
+)
+from settings import (
+    parse_alerts_paused,
+    parse_upward_alert_threshold,
+    threshold_for_direction,
+)
 
 
 COINGECKO_BASE = os.getenv("COINGECKO_API_BASE", "https://api.coingecko.com/api/v3").rstrip("/")
 DISCORD_BASE = "https://discord.com/api/v10"
 CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID", "1370700962695610430")
 ALERT_CHANNEL_ID = os.getenv("ALERT_CHANNEL_ID", "1163364187796426776")
-ALERT_THRESHOLD_PERCENT = float(os.getenv("ALERT_THRESHOLD_PERCENT", "10"))
+ALERT_THRESHOLD_PERCENT = parse_upward_alert_threshold(os.getenv("ALERT_THRESHOLD_PERCENT"))
 OBSOLETE_TEST_LABEL = "[TEST SIMULATION 2026-09-20 12:20:17 UTC]"
 PRICE_EMBED_TITLE = "💱 Prix XTM / wXTM"
 ALERT_PREFIX = "Alerte "
@@ -89,7 +101,13 @@ def select_usdt_ticker(tickers: list[dict[str, Any]], preferred_market: str) -> 
     if not candidates:
         return None
     volume, last, ticker = max(candidates, key=lambda item: item[0])
-    return {"price": last, "volume": volume, "market": ticker.get("market", {}).get("name", "inconnu")}
+    return {
+        "price": last,
+        "volume": volume,
+        "market": ticker.get("market", {}).get("name", "inconnu"),
+        "base": ticker.get("base"),
+        "target": ticker.get("target"),
+    }
 
 
 def get_quote(coin_id: str, label: str, preferred_market: str) -> dict[str, Any]:
@@ -107,6 +125,7 @@ def get_quote(coin_id: str, label: str, preferred_market: str) -> dict[str, Any]
                 "price": None,
                 "currency": "USD",
                 "change": None,
+                "change_1h": None,
                 "market": "Uniswap V4 (Ethereum)",
                 "updated": None,
                 "error": f"pool Uniswap indisponible : {exc}",
@@ -130,11 +149,25 @@ def get_quote(coin_id: str, label: str, preferred_market: str) -> dict[str, Any]
     tickers = api_json(f"{COINGECKO_BASE}/coins/{coin_id}/tickers?{tickers_query}", headers=auth_headers)
     ticker = select_usdt_ticker(tickers.get("tickers", []), preferred_market)
     coin = simple.get(coin_id, {})
+    change_1h = None
+    if ticker and preferred_market.lower() == "mexc":
+        base = str(ticker.get("base", "")).strip().upper()
+        target = str(ticker.get("target", "")).strip().upper()
+        if base and target:
+            try:
+                kline_query = urllib.parse.urlencode(
+                    {"symbol": f"{base}{target}", "interval": "1m", "limit": "100"}
+                )
+                klines = api_json(f"{MEXC_KLINE_BASE}/api/v3/klines?{kline_query}")
+                change_1h = parse_mexc_1h_change(klines, ticker["price"])
+            except Exception as exc:
+                print(f"Variation {label} sur 1 h indisponible via MEXC : {exc}", file=sys.stderr)
     return {
         "label": label,
         "price": ticker["price"] if ticker else None,
         "currency": "USDT",
         "change": coin.get("usd_24h_change"),
+        "change_1h": change_1h,
         "market": ticker["market"] if ticker else None,
         "updated": coin.get("last_updated_at"),
         "error": None if ticker else f"marché {preferred_market} indisponible",
@@ -155,8 +188,10 @@ def price_text(quote: dict[str, Any]) -> str:
     )
     change = quote["change"]
     change_text = "variation 24 h indisponible" if change is None else f"{change:+.2f} % sur 24 h"
+    change_1h = quote.get("change_1h")
+    change_1h_text = "variation 1 h indisponible" if change_1h is None else f"{change_1h:+.2f} % sur 1 h"
     currency = "USDT" if is_wxtm else quote.get("currency", "USDT")
-    lines = [f"**{formatted} {currency}**", change_text]
+    lines = [f"**{formatted} {currency}**", change_text, change_1h_text]
     lines.append(f"Marché : {quote['market']}")
     return "\n".join(lines)
 
@@ -361,16 +396,20 @@ def build_alert_embed(
     *,
     notified_milestone: int | None = None,
     upward: bool = True,
+    threshold: float | None = None,
     previous_changes: dict[str, float] | None = None,
     previous_alert_changes: dict[str, float] | None = None,
     test_label: str | None = None,
     show_trend_for_test: bool = False,
 ) -> dict[str, Any]:
+    effective_threshold = threshold_for_direction(
+        upward, ALERT_THRESHOLD_PERCENT if threshold is None else threshold
+    )
     alert_quotes = []
     if quotes is not None:
         for quote in quotes:
             if quote["change"] is not None:
-                magnitude = min(300.0, max(ALERT_THRESHOLD_PERCENT, abs(float(quote["change"]))))
+                magnitude = min(300.0, max(effective_threshold, abs(float(quote["change"]))))
                 bounded_change = -magnitude if float(quote["change"]) < 0 else magnitude
                 quote = {**quote, "change": bounded_change}
             alert_quotes.append(quote)
@@ -406,8 +445,13 @@ def build_alert_embed(
     return embed
 
 
-def alert_quotes_for_direction(quotes: list[dict[str, Any]], *, upward: bool) -> list[dict[str, Any]]:
+def alert_quotes_for_direction(
+    quotes: list[dict[str, Any]], *, upward: bool, threshold: float | None = None
+) -> list[dict[str, Any]]:
     """Return only XTM/wXTM quotes that currently meet the directional threshold."""
+    effective_threshold = threshold_for_direction(
+        upward, ALERT_THRESHOLD_PERCENT if threshold is None else threshold
+    )
     by_label = {quote.get("label"): quote for quote in quotes}
     affected: list[dict[str, Any]] = []
     for label in ("XTM", "wXTM"):
@@ -415,7 +459,7 @@ def alert_quotes_for_direction(quotes: list[dict[str, Any]], *, upward: bool) ->
         if quote is None or quote.get("change") is None:
             continue
         change = float(quote["change"])
-        triggered = change >= ALERT_THRESHOLD_PERCENT if upward else change <= -ALERT_THRESHOLD_PERCENT
+        triggered = change >= effective_threshold if upward else change <= -effective_threshold
         if triggered:
             affected.append(quote)
     return affected
@@ -431,18 +475,28 @@ def alert_changes_are_complete(quotes: list[dict[str, Any]]) -> bool:
     )
 
 
-def format_alert_text(change: float, *, upward: bool, label: str = "XTM") -> str:
-    magnitude = min(300.0, max(ALERT_THRESHOLD_PERCENT, abs(float(change))))
+def format_alert_text(
+    change: float, *, upward: bool, threshold: float | None = None, label: str = "XTM"
+) -> str:
+    effective_threshold = threshold_for_direction(
+        upward, ALERT_THRESHOLD_PERCENT if threshold is None else threshold
+    )
+    magnitude = min(300.0, max(effective_threshold, abs(float(change))))
     percent = f"{magnitude:.2f}".rstrip("0").rstrip(".")
     if upward:
         return f"{ALERT_PREFIX}{label} +{percent}%"
     return f"{ALERT_PREFIX}{label} -{percent}%  GO BUY"
 
 
-def format_group_alert_text(quotes: list[dict[str, Any]], *, upward: bool) -> str:
+def format_group_alert_text(
+    quotes: list[dict[str, Any]], *, upward: bool, threshold: float | None = None
+) -> str:
     """Build one alert title listing each asset that crossed the same threshold."""
     components = [
-        format_alert_text(float(quote["change"]), upward=upward, label=str(quote["label"]))
+        format_alert_text(
+            float(quote["change"]), upward=upward, threshold=threshold,
+            label=str(quote["label"]),
+        )
         .removeprefix(ALERT_PREFIX)
         .removesuffix("  GO BUY")
         for quote in quotes
@@ -500,12 +554,16 @@ def upsert_alert(
     quotes: list[dict[str, Any]],
     *,
     upward: bool,
+    threshold: float | None = None,
     test_label: str | None = None,
     notify_everyone: bool = True,
     previous_changes: dict[str, float] | None = None,
     show_trend_for_test: bool = False,
 ) -> str:
     """Publish a fresh alert each run, removing older copies and pinging at 10% steps."""
+    effective_threshold = threshold_for_direction(
+        upward, ALERT_THRESHOLD_PERCENT if threshold is None else threshold
+    )
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN est absent")
@@ -544,13 +602,17 @@ def upsert_alert(
     created_messages = []
     for quote in quotes:
         label = str(quote["label"])
-        asset_text = format_alert_text(float(quote["change"]), upward=upward, label=label)
+        asset_text = format_alert_text(
+            float(quote["change"]), upward=upward,
+            threshold=effective_threshold, label=label,
+        )
         asset_embed = build_alert_embed(
             asset_text,
             color,
             [quote],
             notified_milestone=stored_milestone,
             upward=upward,
+            threshold=effective_threshold,
             previous_changes=previous_changes,
             previous_alert_changes=previous_alert_changes,
             test_label=test_label,
@@ -591,11 +653,16 @@ def upsert_alert(
     return f"Alertes séparées publiées : {published}{suffix}{ping}"
 
 
-def clear_alert_if_below_threshold(quotes: list[dict[str, Any]], *, upward: bool) -> str:
+def clear_alert_if_below_threshold(
+    quotes: list[dict[str, Any]], *, upward: bool, threshold: float | None = None
+) -> str:
     """Delete the production alert after all tracked changes leave its threshold zone."""
+    effective_threshold = threshold_for_direction(
+        upward, ALERT_THRESHOLD_PERCENT if threshold is None else threshold
+    )
     if not alert_changes_are_complete(quotes):
         return "données 24 h incomplètes; alerte conservée"
-    if alert_quotes_for_direction(quotes, upward=upward):
+    if alert_quotes_for_direction(quotes, upward=upward, threshold=effective_threshold):
         return "seuil toujours atteint; alerte conservée"
 
     token = os.getenv("DISCORD_BOT_TOKEN")
@@ -627,7 +694,7 @@ def clear_alert_if_below_threshold(quotes: list[dict[str, Any]], *, upward: bool
         return f"aucune alerte {direction} active à supprimer"
     return (
         f"alerte {direction} supprimée; {len(matching)} message(s) retiré(s) "
-        f"car le seuil de ±{ALERT_THRESHOLD_PERCENT:g} % n'est plus atteint"
+        f"car le seuil de {effective_threshold if upward else -effective_threshold:g} % n'est plus atteint"
     )
 
 
@@ -646,13 +713,14 @@ def run_fake_alert_progression() -> None:
                 {"label": "XTM", "price": fake_xtm_price, "change": change, "market": "MEXC (test)", "error": None},
                 {"label": "wXTM", "price": 0.0021, "currency": "USD", "change": 3.2, "market": "Uniswap V4 (test)", "error": None},
             ]
-            affected = alert_quotes_for_direction(quotes, upward=upward)
-            text = format_group_alert_text(affected, upward=upward)
+            affected = alert_quotes_for_direction(quotes, upward=upward, threshold=10.0)
+            text = format_group_alert_text(affected, upward=upward, threshold=10.0)
             result = upsert_alert(
                 text,
                 color,
                 affected,
                 upward=upward,
+                threshold=10.0,
                 test_label="[TEST FICTIF 4 MIN]",
                 notify_everyone=True,
             )
@@ -791,13 +859,18 @@ def run_milestone_22_test() -> None:
         {"label": "XTM", "price": 0.00112, "change": 12.0, "market": "MEXC (simulation)", "error": None},
         {"label": "wXTM", "price": 0.00228, "currency": "USD", "change": 14.0, "market": "Uniswap V4 (simulation)", "error": None},
     ]
-    text_before = format_group_alert_text(alert_quotes_for_direction(before, upward=True), upward=True)
+    text_before = format_group_alert_text(
+        alert_quotes_for_direction(before, upward=True, threshold=10.0),
+        upward=True,
+        threshold=10.0,
+    )
     print("Simulation +10% : premier @everyone; les deux actifs restent au-dessus de +10%.", flush=True)
     print(upsert_alert(
         text_before,
         5763719,
         before,
         upward=True,
+        threshold=10.0,
         test_label=test_label,
         notify_everyone=True,
         previous_changes={"XTM": 0.0, "wXTM": 0.0},
@@ -810,12 +883,17 @@ def run_milestone_22_test() -> None:
         {"label": "XTM", "price": 0.00122, "change": 22.0, "market": "MEXC (simulation)", "error": None},
         {"label": "wXTM", "price": 0.00224, "currency": "USD", "change": 12.0, "market": "Uniswap V4 (simulation)", "error": None},
     ]
-    text_after = format_group_alert_text(alert_quotes_for_direction(after, upward=True), upward=True)
+    text_after = format_group_alert_text(
+        alert_quotes_for_direction(after, upward=True, threshold=10.0),
+        upward=True,
+        threshold=10.0,
+    )
     preview = build_alert_embed(
         text_after,
         5763719,
         after,
         upward=True,
+        threshold=10.0,
         previous_alert_changes={"XTM": 12.0, "wXTM": 14.0},
         test_label=test_label,
         show_trend_for_test=True,
@@ -826,6 +904,7 @@ def run_milestone_22_test() -> None:
         5763719,
         after,
         upward=True,
+        threshold=10.0,
         test_label=test_label,
         notify_everyone=True,
         show_trend_for_test=True,
@@ -845,14 +924,15 @@ def run_positive_pair_test() -> str:
             "error": None,
         },
     ]
-    affected = alert_quotes_for_direction(quotes, upward=True)
-    text = format_group_alert_text(affected, upward=True)
+    affected = alert_quotes_for_direction(quotes, upward=True, threshold=10.0)
+    text = format_group_alert_text(affected, upward=True, threshold=10.0)
     test_label = f"[TEST SIMULATION {datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} UTC]"
     return upsert_alert(
         text,
         5763719,
         affected,
         upward=True,
+        threshold=10.0,
         test_label=test_label,
         notify_everyone=True,
     )
@@ -863,18 +943,20 @@ def run_both_alert_tests(quotes: list[dict[str, Any]]) -> list[str]:
     results = []
     test_label = "[TEST SIMULATION BOTH ±10%]"
     for upward, color in ((True, 5763719), (False, 15158332)):
+        threshold = threshold_for_direction(upward, ALERT_THRESHOLD_PERCENT)
         simulated = [
-            {**quote, "change": ALERT_THRESHOLD_PERCENT if upward else -ALERT_THRESHOLD_PERCENT}
+            {**quote, "change": threshold if upward else -threshold}
             for quote in quotes
             if quote["label"] in {"XTM", "wXTM"}
         ]
-        affected = alert_quotes_for_direction(simulated, upward=upward)
-        text = format_group_alert_text(affected, upward=upward)
+        affected = alert_quotes_for_direction(simulated, upward=upward, threshold=threshold)
+        text = format_group_alert_text(affected, upward=upward, threshold=threshold)
         results.append(upsert_alert(
             text,
             color,
             affected,
             upward=upward,
+            threshold=threshold,
             test_label=test_label,
             notify_everyone=True,
         ))
@@ -922,25 +1004,30 @@ def verify_fake_alert_progression() -> None:
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    if os.getenv("TEST_ALERTS", "").strip().lower() == "verify_test":
+    test_mode = os.getenv("TEST_ALERTS", "").strip().lower()
+    alerts_paused = parse_alerts_paused(os.getenv("ALERTS_PAUSED"))
+    if alerts_paused and test_mode not in {"", "none", "verify_test"}:
+        print("Alertes de mog-post en pause : aucun test d'alerte n'est publié.", flush=True)
+        return 0
+    if test_mode == "verify_test":
         verify_fake_alert_progression()
         return 0
-    if os.getenv("TEST_ALERTS", "").strip().lower() == "progression_3min":
+    if test_mode == "progression_3min":
         run_color_badge_progression_3min()
         return 0
-    if os.getenv("TEST_ALERTS", "").strip().lower() == "milestone_22":
+    if test_mode == "milestone_22":
         run_milestone_22_test()
         return 0
-    if os.getenv("TEST_ALERTS", "").strip().lower() == "progression_4min":
+    if test_mode == "progression_4min":
         print("Test fictif sur quatre minutes : alertes marquées TEST, sans @everyone.", flush=True)
         run_fake_alert_progression()
         return 0
-    if os.getenv("TEST_ALERTS", "").strip().lower() == "positive_pair_once":
+    if test_mode == "positive_pair_once":
         print("Simulation XTM +10.80 % / wXTM +13.84 % avec un ping @everyone, sans modifier les alertes réelles.", flush=True)
         print(run_positive_pair_test())
         return 0
     quotes = [get_quote(coin_id, label, preferred_market) for coin_id, label, preferred_market in COINS]
-    if os.getenv("TEST_ALERTS", "").strip().lower() == "both_once":
+    if test_mode == "both_once":
         print("Tests vert/rouge simulés et étiquetés TEST; aucune alerte de production ne sera modifiée.", flush=True)
         for result in run_both_alert_tests(quotes):
             print(result)
@@ -957,15 +1044,22 @@ def main() -> int:
         return 0
     previous_changes: dict[str, float] = {}
     print(update_discord(embed, previous_changes=previous_changes))
+    if alerts_paused:
+        print("Alertes de mog-post en pause : les cours ont été actualisés; les alertes existantes sont conservées.", flush=True)
+        return 0
     for upward, color in ((True, 5763719), (False, 15158332)):
-        affected = alert_quotes_for_direction(quotes, upward=upward)
+        threshold = threshold_for_direction(upward, ALERT_THRESHOLD_PERCENT)
+        affected = alert_quotes_for_direction(quotes, upward=upward, threshold=threshold)
         if not affected:
-            print(clear_alert_if_below_threshold(quotes, upward=upward))
+            print(clear_alert_if_below_threshold(quotes, upward=upward, threshold=threshold))
             continue
-        text = format_group_alert_text(affected, upward=upward)
+        text = format_group_alert_text(affected, upward=upward, threshold=threshold)
         description = ", ".join(f"{quote['label']} {float(quote['change']):+.2f}%" for quote in affected)
         print(f"Variation 24 h détectée ({description}); lancement de l'alerte")
-        print(upsert_alert(text, color, affected, upward=upward, previous_changes=previous_changes))
+        print(upsert_alert(
+            text, color, affected, upward=upward, threshold=threshold,
+            previous_changes=previous_changes,
+        ))
     return 0
 
 

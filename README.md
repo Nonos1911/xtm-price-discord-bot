@@ -8,9 +8,10 @@ Ce service récupère les cours de XTM et de wXTM depuis les marchés configuré
 
 Le cours wXTM est lu directement dans ce pool par GeckoTerminal. La source donne
 un prix équivalent en USD depuis la paire wXTM/ETH ; l'application l'affiche en
-USDT à parité indicative (USD≈USDT), avec cinq décimales au maximum. Sa
-variation 24 h pour les alertes vient également de ce pool. XTM reste lu sur
-MEXC en USDT.
+USDT à parité indicative (USD≈USDT), avec cinq décimales au maximum. Ses
+variations 24 h et 1 h viennent également de ce pool. XTM reste lu sur MEXC
+en USDT ; sa variation 1 h est calculée depuis les chandelles MEXC d'une minute,
+et sa variation 24 h garde sa source de marché habituelle.
 
 Il maintient une seule box dans le salon Discord `1370700962695610430` : à chaque
 cycle, il publie le nouveau message puis supprime les anciennes boxes afin que
@@ -18,7 +19,7 @@ les cours restent en bas du salon. Le service est
 conçu pour fonctionner dans un worker cloud, donc ton PC peut être éteint.
 
 Le bot surveille séparément les variations 24 h de `XTM` et `wXTM` fournies par
-leurs marchés respectifs. Si au moins l'un atteint `+10 %`, une alerte verte est publiée dans
+leurs marchés respectifs. Par défaut, si au moins l'un atteint `+10 %`, une alerte verte est publiée dans
 `mog-post` (`1163364187796426776`). Si au moins l'un atteint
 `-10 %`, une alerte rouge distincte est publiée. XTM et wXTM ont toujours
 chacun leur propre message/box ; à chaque actualisation d'une alerte active,
@@ -54,6 +55,25 @@ prochains paliers à surveiller.
 Un cronjob dédié peut lancer le workflow avec `snapshot_only = true` toutes les
 4 heures. Dans ce mode, le bot publie une nouvelle embed ponctuelle dans
 `mog-post` avec les deux prix du moment, sans modifier les snapshots précédents.
+
+### Régler ou mettre en pause les alertes
+
+Dans GitHub, ouvre `Settings > Secrets and variables > Actions > Variables` et
+crée/modifie les variables suivantes pour qu'elles s'appliquent à toutes les
+exécutions planifiées :
+
+- `ALERTS_PAUSED` : `true` met en pause les alertes vertes/rouges de `mog-post` ;
+  `false` les réactive. La box des cours continue d'être actualisée et les alertes
+  déjà affichées sont conservées pendant la pause. Les snapshots ponctuels du prix
+  ne sont pas des alertes et restent indépendants.
+- `ALERT_THRESHOLD_PERCENT` : `10`, `20`, `30` ou `40` définit le seuil haussier.
+  Le seuil baissier reste fixé à `-10 %`. À la reprise, le réglage s'applique dès
+  la prochaine exécution planifiée.
+
+Lors d'un lancement manuel via `Actions > Prix XTM planifiés > Run workflow`, les
+options `Surcharge ponctuelle des alertes` et `Seuil haussier ponctuel` permettent
+de suspendre/réactiver ou changer le seuil pour ce seul lancement. L'option
+`inherit` applique les variables persistantes du dépôt.
 
 ## Discord
 
@@ -101,10 +121,13 @@ Pour l'utiliser :
    (le dossier `.github` doit être à la racine du dépôt).
 2. Dans `Settings > Secrets and variables > Actions`, ajoute le secret
    `DISCORD_BOT_TOKEN`.
-3. Ajoute éventuellement `COINGECKO_API_KEY` comme second secret, si tu en as
+3. Dans l'onglet `Variables` au même endroit, règle si souhaité
+   `ALERTS_PAUSED=false` et `ALERT_THRESHOLD_PERCENT=10` (10 par défaut même si
+   les variables ne sont pas créées).
+4. Ajoute éventuellement `COINGECKO_API_KEY` comme second secret, si tu en as
    une ; le service fonctionne aussi avec l'API publique dans la limite de ses
    quotas.
-4. Dans l'onglet `Actions`, lance `Mettre à jour les cours XTM` une première
+5. Dans l'onglet `Actions`, lance `Mettre à jour les cours XTM` une première
    fois avec `Run workflow` pour tester immédiatement.
 
 Pour tester ponctuellement les deux alertes dans `mog-post` sans attendre une

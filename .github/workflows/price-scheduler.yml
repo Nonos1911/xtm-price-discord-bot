@@ -24,6 +24,26 @@ name: Prix XTM planifiés
           - false
           - true
         default: false
+      alerts_override:
+        description: "Surcharge ponctuelle; pour un réglage permanent, utiliser les variables Actions du dépôt"
+        required: false
+        type: choice
+        options:
+          - inherit
+          - pause
+          - resume
+        default: inherit
+      upward_threshold_override:
+        description: "Seuil haussier ponctuel; pour un réglage permanent, utiliser ALERT_THRESHOLD_PERCENT dans les variables du dépôt"
+        required: false
+        type: choice
+        options:
+          - inherit
+          - "10"
+          - "20"
+          - "30"
+          - "40"
+        default: inherit
 
 permissions:
   contents: read
@@ -41,7 +61,8 @@ jobs:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_CHANNEL_ID: "1370700962695610430"
           ALERT_CHANNEL_ID: "1163364187796426776"
-          ALERT_THRESHOLD_PERCENT: "10"
+          ALERT_THRESHOLD_PERCENT: ${{ inputs.upward_threshold_override != 'inherit' && inputs.upward_threshold_override || vars.ALERT_THRESHOLD_PERCENT || '10' }}
+          ALERTS_PAUSED: ${{ inputs.alerts_override == 'pause' && 'true' || inputs.alerts_override == 'resume' && 'false' || vars.ALERTS_PAUSED || 'false' }}
           TEST_ALERTS: ${{ inputs.test_alerts || 'none' }}
           SNAPSHOT_ONLY: ${{ inputs.snapshot_only || 'false' }}
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
