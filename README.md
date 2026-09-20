@@ -1,16 +1,21 @@
 # Bot Discord des cours XTM / wXTM
 
-Ce service récupère le meilleur marché `USDT` indexé par CoinGecko pour :
+Ce service récupère les cours de XTM et de wXTM depuis les marchés configurés :
 
 - `XTM` = MinoTari (`minotari`), marché USDT **MEXC** ;
-- `wXTM` = Wrapped MinoTari (`wrapped-minotari`), marché USDT **Gate**.
+- `wXTM` = Wrapped MinoTari (`wrapped-minotari`), pool **Uniswap V4 sur Ethereum** :
+  `0x530581e8b4dff575d96af96cbfb74d0cc4ed0ec0cb7c953f491c7a60a787412d`.
+
+Le cours wXTM est lu directement dans ce pool par GeckoTerminal et affiché en
+USD (prix équivalent calculé par l'API depuis la paire wXTM/ETH) ; sa variation
+24 h pour les alertes vient également de ce pool. XTM reste lu sur MEXC en USDT.
 
 Il maintient un seul embed dans le salon Discord `1370700962695610430` et le
 met à jour toutes les minutes. Les anciens embeds de cours sont nettoyés. Le service est
 conçu pour fonctionner dans un worker cloud, donc ton PC peut être éteint.
 
 Le bot surveille séparément les variations 24 h de `XTM` et `wXTM` fournies par
-CoinGecko. Si au moins l'un atteint `+10 %`, une alerte verte est publiée dans
+leurs marchés respectifs. Si au moins l'un atteint `+10 %`, une alerte verte est publiée dans
 `mog-post` (`1163364187796426776`). Si au moins l'un atteint
 `-10 %`, une alerte rouge distincte est publiée. À chaque actualisation d'une
 alerte active, le bot publie un nouveau message puis supprime l'ancien pour
@@ -122,5 +127,5 @@ python -m pytest -q
 ```
 
 Le service refuse de démarrer sans token, réessaie les réponses limitées par
-CoinGecko, conserve les erreurs d'un actif séparément et ne remplace pas le
-message si aucun cours USDT n'est disponible.
+CoinGecko ou GeckoTerminal, conserve les erreurs d'un actif séparément et ne
+remplace pas le message si aucun cours valide n'est disponible.

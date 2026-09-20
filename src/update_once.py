@@ -14,6 +14,8 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
+from pool_data import GECKOTERMINAL_BASE, WXTM_NETWORK, WXTM_POOL_ADDRESS, parse_wxtm_pool_response
+
 
 COINGECKO_BASE = os.getenv("COINGECKO_API_BASE", "https://api.coingecko.com/api/v3").rstrip("/")
 DISCORD_BASE = "https://discord.com/api/v10"
@@ -24,7 +26,7 @@ PRICE_EMBED_TITLE = "💱 Prix XTM / wXTM"
 ALERT_PREFIX = "Alert "
 ALERT_MILESTONE_FOOTER = "Palier @everyone notifié : "
 ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)([+-])(\d+(?:\.\d+)?)%")
-COINS = [("minotari", "XTM", "MEXC"), ("wrapped-minotari", "wXTM", "Gate")]
+COINS = [("minotari", "XTM", "MEXC"), ("wrapped-minotari", "wXTM", "Uniswap V4")]
 
 
 def api_json(url: str, *, headers: dict[str, str] | None = None, method: str = "GET", body: Any = None) -> Any:
@@ -87,6 +89,25 @@ def select_usdt_ticker(tickers: list[dict[str, Any]], preferred_market: str) -> 
 
 
 def get_quote(coin_id: str, label: str, preferred_market: str) -> dict[str, Any]:
+    if label == "wXTM":
+        try:
+            response = api_json(
+                f"{GECKOTERMINAL_BASE}/networks/{WXTM_NETWORK}/pools/{WXTM_POOL_ADDRESS}",
+                headers={"Accept": "application/json;version=20230302"},
+            )
+            quote = parse_wxtm_pool_response(response)
+            return {"label": label, **quote}
+        except Exception as exc:
+            return {
+                "label": label,
+                "price": None,
+                "currency": "USD",
+                "change": None,
+                "market": "Uniswap V4 (Ethereum)",
+                "updated": None,
+                "error": f"pool Uniswap indisponible : {exc}",
+            }
+
     query = urllib.parse.urlencode(
         {
             "ids": coin_id,
@@ -108,6 +129,7 @@ def get_quote(coin_id: str, label: str, preferred_market: str) -> dict[str, Any]
     return {
         "label": label,
         "price": ticker["price"] if ticker else None,
+        "currency": "USDT",
         "change": coin.get("usd_24h_change"),
         "market": ticker["market"] if ticker else None,
         "updated": coin.get("last_updated_at"),
@@ -122,7 +144,8 @@ def price_text(quote: dict[str, Any]) -> str:
     formatted = f"{price:,.4f}".replace(",", " ") if price >= 1 else f"{price:.10f}".rstrip("0").rstrip(".")
     change = quote["change"]
     change_text = "variation 24 h indisponible" if change is None else f"{change:+.2f} % sur 24 h"
-    return f"**{formatted} USDT**\n{change_text}\nMarché : {quote['market']}"
+    currency = quote.get("currency", "USDT")
+    return f"**{formatted} {currency}**\n{change_text}\nMarché : {quote['market']}"
 
 
 def build_embed(quotes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -132,7 +155,7 @@ def build_embed(quotes: list[dict[str, Any]]) -> dict[str, Any]:
 def build_price_embed(quotes: list[dict[str, Any]], footer_text: str) -> dict[str, Any]:
     return {
         "title": PRICE_EMBED_TITLE,
-        "description": "Cours en USDT récupérés sur CoinGecko.",
+        "description": "XTM/USDT sur MEXC ; wXTM/USD depuis le pool Uniswap V4 (Ethereum).",
         "color": 5793266,
         "fields": [{"name": quote["label"], "value": price_text(quote), "inline": True} for quote in quotes],
         "footer": {"text": footer_text},
@@ -384,7 +407,7 @@ def run_fake_alert_progression() -> None:
             fake_xtm_price = max(0.0, 0.001 * (1.0 + change / 100.0))
             quotes = [
                 {"label": "XTM", "price": fake_xtm_price, "change": change, "market": "MEXC (test)", "error": None},
-                {"label": "wXTM", "price": 0.0021, "change": 3.2, "market": "Gate (test)", "error": None},
+                {"label": "wXTM", "price": 0.0021, "currency": "USD", "change": 3.2, "market": "Uniswap V4 (test)", "error": None},
             ]
             affected = alert_quotes_for_direction(quotes, upward=upward)
             text = format_group_alert_text(affected, upward=upward)

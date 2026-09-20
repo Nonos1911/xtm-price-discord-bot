@@ -21,6 +21,7 @@ from typing import Any
 import aiohttp
 import discord
 from discord.ext import tasks
+from pool_data import GECKOTERMINAL_BASE, WXTM_NETWORK, WXTM_POOL_ADDRESS, parse_wxtm_pool_response
 
 
 LOGGER = logging.getLogger("xtm-price-bot")
@@ -93,12 +94,12 @@ def select_usdt_ticker(tickers: list[dict[str, Any]], preferred_market: str) -> 
     return max(candidates, key=lambda item: item["_volume_float"], default=None)
 
 
-def format_price(value: float | None) -> str:
+def format_price(value: float | None, currency: str = "USDT") -> str:
     if value is None:
         return "indisponible"
     if value >= 1:
-        return f"{value:,.4f} USDT".replace(",", " ")
-    return f"{value:.10f}".rstrip("0").rstrip(".") + " USDT"
+        return f"{value:,.4f} {currency}".replace(",", " ")
+    return f"{value:.10f}".rstrip("0").rstrip(".") + f" {currency}"
 
 
 def format_change(value: float | None) -> str:
@@ -179,12 +180,13 @@ def message_notified_milestone(message: discord.Message, *, upward: bool) -> int
 class PriceQuote:
     coin_id: str
     label: str
-    price_usdt: float | None
+    price: float | None
     change_24h: float | None
     market: str | None
     preferred_market: str
     updated_at: int | None
     error: str | None = None
+    currency: str = "USDT"
 
 
 class CoinGeckoClient:
@@ -220,7 +222,55 @@ class CoinGeckoClient:
                     await asyncio.sleep(1.5 * (attempt + 1))
         raise RuntimeError(f"CoinGecko indisponible: {last_error}") from last_error
 
+    async def get_wxtm_pool_json(self) -> dict[str, Any]:
+        url = f"{GECKOTERMINAL_BASE}/networks/{WXTM_NETWORK}/pools/{WXTM_POOL_ADDRESS}"
+        headers = {"Accept": "application/json;version=20230302", "User-Agent": "xtm-price-discord-bot/1.0"}
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                async with self.session.get(url, headers=headers) as response:
+                    if response.status == 429:
+                        retry_after = response.headers.get("Retry-After")
+                        delay = float(retry_after) if retry_after else 2.0 * (attempt + 1)
+                        await asyncio.sleep(min(delay, 20.0))
+                        continue
+                    response.raise_for_status()
+                    return await response.json()
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+                last_error = exc
+                if attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+        raise RuntimeError(f"Pool wXTM/ETH indisponible : {last_error}") from last_error
+
     async def quote(self, coin_id: str, label: str, preferred_market: str) -> PriceQuote:
+        if label == "wXTM":
+            try:
+                pool_quote = parse_wxtm_pool_response(await self.get_wxtm_pool_json())
+                return PriceQuote(
+                    coin_id=coin_id,
+                    label=label,
+                    price=pool_quote["price"],
+                    change_24h=pool_quote["change"],
+                    market=pool_quote["market"],
+                    preferred_market=preferred_market,
+                    updated_at=None,
+                    error=None,
+                    currency=pool_quote["currency"],
+                )
+            except Exception as exc:
+                LOGGER.warning("Impossible de récupérer wXTM sur Uniswap : %s", exc)
+                return PriceQuote(
+                    coin_id=coin_id,
+                    label=label,
+                    price=None,
+                    change_24h=None,
+                    market="Uniswap V4 (Ethereum)",
+                    preferred_market=preferred_market,
+                    updated_at=None,
+                    error=str(exc),
+                    currency="USD",
+                )
+
         try:
             simple, tickers = await asyncio.gather(
                 self.get_json(
@@ -242,7 +292,7 @@ class CoinGeckoClient:
             return PriceQuote(
                 coin_id=coin_id,
                 label=label,
-                price_usdt=ticker["_last_float"] if ticker else None,
+                price=ticker["_last_float"] if ticker else None,
                 change_24h=coin_data.get("usd_24h_change"),
                 market=(ticker.get("market", {}).get("name") if ticker else None),
                 preferred_market=preferred_market,
@@ -254,7 +304,7 @@ class CoinGeckoClient:
             return PriceQuote(
                 coin_id=coin_id,
                 label=label,
-                price_usdt=None,
+                price=None,
                 change_24h=None,
                 market=None,
                 preferred_market=preferred_market,
@@ -338,14 +388,14 @@ class PriceBot(discord.Client):
             timestamp=datetime.now(timezone.utc),
         )
         for quote in quotes:
-            if quote.price_usdt is None:
+            if quote.price is None:
                 value = f"Indisponible — {quote.error or 'aucun marché USDT'}"
             else:
                 display_change = quote.change_24h
                 if display_change is not None:
                     magnitude = min(300.0, max(self.alert_threshold, abs(display_change)))
                     display_change = -magnitude if display_change < 0 else magnitude
-                value = f"**{format_price(quote.price_usdt)}**\n{format_change(display_change)}"
+                value = f"**{format_price(quote.price, quote.currency)}**\n{format_change(display_change)}"
                 if quote.market:
                     value += f"\nMarché : {quote.market}"
             alert_embed.add_field(name=quote.label, value=value, inline=True)
@@ -414,21 +464,21 @@ class PriceBot(discord.Client):
             return
         channel = await self.resolve_channel(self.channel_id)
         quotes = await asyncio.gather(*(self.price_client.quote(coin_id, label, preferred_market) for coin_id, label, preferred_market in self.coins))
-        if not any(quote.price_usdt is not None for quote in quotes):
-            LOGGER.error("Aucun prix USDT disponible; le message Discord n'est pas remplacé")
+        if not any(quote.price is not None for quote in quotes):
+            LOGGER.error("Aucun prix valide disponible; le message Discord n'est pas remplacé")
             return
 
         embed = discord.Embed(
             title="💱 Prix XTM / wXTM",
-            description="Cours en USDT récupérés sur CoinGecko.",
+            description="XTM/USDT sur MEXC ; wXTM/USD depuis son pool Uniswap V4.",
             colour=discord.Colour.blue(),
             timestamp=datetime.now(timezone.utc),
         )
         for quote in quotes:
-            if quote.price_usdt is None:
-                value = f"Indisponible — {quote.error or 'aucun marché USDT'}"
+            if quote.price is None:
+                value = f"Indisponible — {quote.error or 'marché indisponible'}"
             else:
-                value = f"**{format_price(quote.price_usdt)}**\n{format_change(quote.change_24h)}"
+                value = f"**{format_price(quote.price, quote.currency)}**\n{format_change(quote.change_24h)}"
                 if quote.market:
                     value += f"\nMarché : {quote.market}"
             embed.add_field(name=quote.label, value=value, inline=True)
@@ -447,7 +497,7 @@ def main() -> None:
     interval = env_int("INTERVAL_MINUTES", 5)
     if interval < 5:
         raise SystemExit("INTERVAL_MINUTES doit être au moins égal à 5")
-    coins = parse_coin_config(os.getenv("COINS", "minotari:XTM:MEXC,wrapped-minotari:wXTM:Gate"))
+    coins = parse_coin_config(os.getenv("COINS", "minotari:XTM:MEXC,wrapped-minotari:wXTM:Uniswap V4"))
     alert_channel_id = env_int("ALERT_CHANNEL_ID", 1163364187796426776)
     alert_threshold = float(os.getenv("ALERT_THRESHOLD_PERCENT", "10"))
     state_file = Path(os.getenv("STATE_FILE", "/data/state.json"))

@@ -15,6 +15,19 @@ from update_once import (
     price_text,
     select_usdt_ticker,
 )
+from pool_data import WXTM_NETWORK, WXTM_POOL_ADDRESS, parse_wxtm_pool_response
+
+POOL_RESPONSE = {
+    "data": {
+        "id": "eth_0x530581e8b4dff575d96af96cbfb74d0cc4ed0ec0cb7c953f491c7a60a787412d",
+        "attributes": {
+            "address": "0x530581e8b4dff575d96af96cbfb74d0cc4ed0ec0cb7c953f491c7a60a787412d",
+            "name": "wXTM / ETH 3%",
+            "base_token_price_usd": "0.002428",
+            "price_change_percentage": {"h24": "17.33"},
+        },
+    }
+}
 
 
 def test_select_usdt_ticker():
@@ -29,7 +42,7 @@ def test_select_usdt_ticker():
 def test_embed_has_both_assets():
     embed = build_embed([
         {"label": "XTM", "price": 0.001, "change": 1.5, "market": "MEXC", "error": None},
-        {"label": "wXTM", "price": 0.002, "change": -2.0, "market": "Gate", "error": None},
+        {"label": "wXTM", "price": 0.002, "currency": "USD", "change": -2.0, "market": "Uniswap V4 (Ethereum)", "error": None},
     ])
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
     assert "USDT" in price_text({"price": 0.001, "change": 1.5, "market": "MEXC", "error": None})
@@ -70,7 +83,7 @@ def test_group_alert_names_only_affected_assets_and_can_handle_both():
         5763719,
         [
             {"label": "XTM", "price": 0.001, "change": 10.0, "market": "MEXC", "error": None},
-            {"label": "wXTM", "price": 0.002, "change": 17.19, "market": "Gate", "error": None},
+            {"label": "wXTM", "price": 0.002, "currency": "USD", "change": 17.19, "market": "Uniswap V4 (Ethereum)", "error": None},
         ],
     )
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
@@ -79,14 +92,14 @@ def test_group_alert_names_only_affected_assets_and_can_handle_both():
 def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
     quotes = [
         {"label": "XTM", "price": 0.0022, "change": 7.54, "market": "MEXC", "error": None},
-        {"label": "wXTM", "price": 0.002428, "change": 18.70, "market": "Gate", "error": None},
+        {"label": "wXTM", "price": 0.002428, "currency": "USD", "change": 18.70, "market": "Uniswap V4 (Ethereum)", "error": None},
     ]
     affected = alert_quotes_for_direction(quotes, upward=True)
     embed = build_alert_embed(format_group_alert_text(affected, upward=True), 5763719, affected)
 
     assert embed["title"] == "Alert wXTM+18.7%"
     assert [field["name"] for field in embed["fields"]] == ["wXTM"]
-    assert "0.002428 USDT" in embed["fields"][0]["value"]
+    assert "0.002428 USD" in embed["fields"][0]["value"]
     assert format_alert_text(-10, upward=False) == "Alert XTM-10%  GO BUY"
     assert format_alert_text(10, upward=True) == "Alert XTM+10%"
     assert format_alert_text(15.678, upward=True) == "Alert XTM+15.68%"
@@ -98,13 +111,13 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
         15158332,
         [
             {"label": "XTM", "price": 0.001, "change": -10.0, "market": "MEXC", "error": None},
-            {"label": "wXTM", "price": 0.002, "change": -2.0, "market": "Gate", "error": None},
+            {"label": "wXTM", "price": 0.002, "currency": "USD", "change": -2.0, "market": "Uniswap V4 (Ethereum)", "error": None},
         ],
     )
     assert embed["color"] == 15158332
     assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
     assert "0.001 USDT" in embed["fields"][0]["value"]
-    assert "0.002 USDT" in embed["fields"][1]["value"]
+    assert "0.002 USD" in embed["fields"][1]["value"]
     capped_embed = build_alert_embed(
         "Alert XTM-300%  GO BUY",
         15158332,
@@ -114,9 +127,58 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
     wxtm_capped = build_alert_embed(
         "Alert wXTM-300%  GO BUY",
         15158332,
-        [{"label": "wXTM", "price": 0.002, "change": -450.0, "market": "Gate", "error": None}],
+        [{"label": "wXTM", "price": 0.002, "currency": "USD", "change": -450.0, "market": "Uniswap V4 (Ethereum)", "error": None}],
     )
     assert "-300.00 % sur 24 h" in wxtm_capped["fields"][0]["value"]
+
+
+def test_parse_geckoterminal_wxtm_pool_response_uses_usd_and_pool_variation():
+    quote = parse_wxtm_pool_response(POOL_RESPONSE)
+    assert quote == {
+        "price": 0.002428,
+        "currency": "USD",
+        "change": 17.33,
+        "market": "Uniswap V4 (Ethereum)",
+        "updated": None,
+        "error": None,
+    }
+
+
+def test_parse_geckoterminal_rejects_a_different_pool():
+    wrong_pool = {
+        "data": {
+            "attributes": {
+                **POOL_RESPONSE["data"]["attributes"],
+                "address": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            }
+        }
+    }
+    try:
+        parse_wxtm_pool_response(wrong_pool)
+    except ValueError as exc:
+        assert "autre pool" in str(exc)
+    else:
+        raise AssertionError("un pool différent doit être refusé")
+
+
+def test_get_quote_for_wxtm_calls_only_the_configured_uniswap_pool(monkeypatch):
+    calls = []
+
+    def fake_api_json(url, *, headers=None, method="GET", body=None):
+        calls.append((url, headers))
+        return POOL_RESPONSE
+
+    monkeypatch.setattr(update_once, "api_json", fake_api_json)
+    quote = update_once.get_quote("wrapped-minotari", "wXTM", "Uniswap V4")
+
+    assert calls == [(
+        f"https://api.geckoterminal.com/api/v2/networks/{WXTM_NETWORK}/pools/{WXTM_POOL_ADDRESS}",
+        {"Accept": "application/json;version=20230302"},
+    )]
+    assert quote["price"] == 0.002428
+    assert quote["currency"] == "USD"
+    assert quote["change"] == 17.33
+    assert quote["market"] == "Uniswap V4 (Ethereum)"
 
 
 def test_update_discord_reuses_one_price_message_and_removes_duplicates(monkeypatch):
@@ -164,7 +226,7 @@ def test_upsert_alert_replaces_previous_message_without_repinging_same_ten_perce
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     result = update_once.upsert_alert(
         "Alert wXTM+12.5%", 5763719,
-        [{"label": "wXTM", "price": 0.002, "change": 12.5, "market": "Gate", "error": None}],
+        [{"label": "wXTM", "price": 0.002, "currency": "USD", "change": 12.5, "market": "Uniswap V4 (Ethereum)", "error": None}],
         upward=True,
     )
 
@@ -222,7 +284,7 @@ def test_upsert_alert_pings_again_only_when_next_ten_percent_milestone_is_reache
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     update_once.upsert_alert(
         "Alert wXTM+20.1%", 5763719,
-        [{"label": "wXTM", "price": 0.002, "change": 20.1, "market": "Gate", "error": None}],
+        [{"label": "wXTM", "price": 0.002, "currency": "USD", "change": 20.1, "market": "Uniswap V4 (Ethereum)", "error": None}],
         upward=True,
     )
 
