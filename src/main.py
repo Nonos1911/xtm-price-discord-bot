@@ -30,6 +30,7 @@ from pool_data import (
     parse_wxtm_pool_response,
 )
 from settings import (
+    DOWNWARD_ALERT_THRESHOLD,
     DEFAULT_UPWARD_ALERT_THRESHOLD,
     parse_alerts_paused,
     parse_upward_alert_threshold,
@@ -255,7 +256,7 @@ def format_alert_text(
     threshold: float | None = None,
     label: str = "XTM",
 ) -> str:
-    threshold = threshold or (DEFAULT_UPWARD_ALERT_THRESHOLD if upward else 10.0)
+    threshold = threshold or (DEFAULT_UPWARD_ALERT_THRESHOLD if upward else DOWNWARD_ALERT_THRESHOLD)
     magnitude = min(300.0, max(threshold, abs(float(change))))
     percent = f"{magnitude:.2f}".rstrip("0").rstrip(".")
     if upward:
@@ -266,7 +267,7 @@ def format_alert_text(
 def alert_quotes_for_direction(
     quotes: list["PriceQuote"], *, upward: bool, threshold: float | None = None
 ) -> list["PriceQuote"]:
-    threshold = threshold or (DEFAULT_UPWARD_ALERT_THRESHOLD if upward else 10.0)
+    threshold = threshold or (DEFAULT_UPWARD_ALERT_THRESHOLD if upward else DOWNWARD_ALERT_THRESHOLD)
     by_label = {quote.label: quote for quote in quotes}
     affected: list[PriceQuote] = []
     for label in ("XTM", "wXTM"):
@@ -291,7 +292,7 @@ def alert_changes_are_complete(quotes: list["PriceQuote"], labels: set[str]) -> 
 def format_group_alert_text(
     quotes: list["PriceQuote"], *, upward: bool, threshold: float | None = None
 ) -> str:
-    threshold = threshold or (DEFAULT_UPWARD_ALERT_THRESHOLD if upward else 10.0)
+    threshold = threshold or (DEFAULT_UPWARD_ALERT_THRESHOLD if upward else DOWNWARD_ALERT_THRESHOLD)
     components = [
         format_alert_text(
             quote.change_24h, upward=upward, threshold=threshold, label=quote.label

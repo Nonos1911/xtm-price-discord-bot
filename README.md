@@ -21,7 +21,7 @@ conçu pour fonctionner dans un worker cloud, donc ton PC peut être éteint.
 Le bot surveille séparément les variations 24 h de `XTM` et `wXTM` fournies par
 leurs marchés respectifs. Par défaut, si au moins l'un atteint `+10 %`, une alerte verte est publiée dans
 `mog-post` (`1163364187796426776`). Si au moins l'un atteint
-`-10 %`, une alerte rouge distincte est publiée. XTM et wXTM ont toujours
+`-30 %`, une alerte rouge distincte est publiée. XTM et wXTM ont toujours
 chacun leur propre message/box ; à chaque actualisation d'une alerte active,
 le bot publie les nouvelles boxes puis supprime les anciennes pour les faire
 remonter en bas du salon. Chaque box ne nomme et n'affiche que l'actif qui a
@@ -38,7 +38,7 @@ pourcentages affichés sont plafonnés à `+300 %` et `-300 %`. Quand un actif
 repasse sous le seuil, il disparaît de la prochaine mise à jour si un autre
 actif reste au-dessus ; si aucun actif ne franchit encore le seuil, l'alerte
 de cette direction est supprimée de `mog-post`. Elle ne réapparaît qu'au
-prochain franchissement de `+10 %` ou `-10 %`. Une alerte est conservée si une
+prochain franchissement de `+10 %` ou `-30 %`. Une alerte est conservée si une
 variation 24 h configurée est momentanément indisponible. `@everyone` ne
 notifie qu'aux paliers franchis de 10 % en 10 % (±10,
 ±20, …, ±300), sans reping à chaque actualisation dans un même palier. Le
@@ -73,7 +73,7 @@ le workflow :
   déjà affichées sont conservées pendant la pause. Les snapshots ponctuels du prix
   ne sont pas des alertes et restent indépendants.
 - `upward_threshold_percent` : `10`, `20`, `30` ou `40` définit le seuil haussier.
-  Le seuil baissier reste fixé à `-10 %`. À la reprise, le réglage s'applique dès
+  Le seuil baissier reste fixé à `-30 %`. À la reprise, le réglage s'applique dès
   la prochaine exécution planifiée.
 
 Les réglages publiés par Tari tracker sont prioritaires pour chaque exécution,
@@ -146,7 +146,8 @@ rouge, puis le fonctionnement planifié reste inchangé.
 
 Pour vérifier les remplacements de messages sur quatre minutes, lance le
 workflow avec `test_alerts = progression_4min`. Il simule `+10, +25, +100,
-+200, +300 %` et les mêmes valeurs négatives. Les messages portent la mention
++200, +300 %` à la hausse et `-30, -30, -100, -200, -300 %` à la baisse. Les
+messages portent la mention
 `[TEST FICTIF 4 MIN]`, affichent des prix XTM fictifs cohérents avec le taux
 (une baisse simulée ne peut pas faire descendre un prix sous zéro). `@everyone`
 est notifié aux paliers de 10 % atteints, sans ping à chaque minute. L'option

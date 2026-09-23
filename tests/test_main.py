@@ -145,7 +145,7 @@ def test_worker_parses_previous_changes_and_calculates_trend_signs():
 def test_worker_alerts_can_trigger_both_assets_and_both_directions_independently():
     quotes = [
         PriceQuote("minotari", "XTM", 0.001, 10.0, "MEXC", "MEXC", 1),
-        PriceQuote("wrapped-minotari", "wXTM", 0.002, -17.19, "Uniswap V4 (Ethereum)", "Uniswap V4", 1, currency="USD"),
+        PriceQuote("wrapped-minotari", "wXTM", 0.002, -30.0, "Uniswap V4 (Ethereum)", "Uniswap V4", 1, currency="USD"),
     ]
 
     rising = alert_quotes_for_direction(quotes, upward=True, threshold=10)
@@ -153,7 +153,7 @@ def test_worker_alerts_can_trigger_both_assets_and_both_directions_independently
 
     assert [quote.label for quote in rising] == ["XTM"]
     assert [quote.label for quote in falling] == ["wXTM"]
-    assert format_group_alert_text(falling, upward=False, threshold=10) == "Alerte wXTM -17.19%  GO BUY"
+    assert format_group_alert_text(falling, upward=False, threshold=10) == "Alerte wXTM -30%  GO BUY"
 
 
 def test_paused_live_worker_does_not_schedule_alert_or_cleanup_tasks(tmp_path):

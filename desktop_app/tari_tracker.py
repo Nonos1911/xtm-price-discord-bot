@@ -202,7 +202,7 @@ class TariTrackerApp:
             width=12,
         )
         self.threshold_box.pack(anchor="w", pady=(5, 2))
-        ttk.Label(frame, text="Le seuil à la baisse reste fixé à −10 %.").pack(anchor="w")
+        ttk.Label(frame, text="Le seuil à la baisse reste fixé à −30 %.").pack(anchor="w")
 
         self.pause_check = ttk.Checkbutton(
             frame,

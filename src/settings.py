@@ -7,7 +7,7 @@ import math
 
 UPWARD_ALERT_THRESHOLDS = (10.0, 20.0, 30.0, 40.0)
 DEFAULT_UPWARD_ALERT_THRESHOLD = 10.0
-DOWNWARD_ALERT_THRESHOLD = 10.0
+DOWNWARD_ALERT_THRESHOLD = 30.0
 
 
 def parse_upward_alert_threshold(value: str | None) -> float:
@@ -37,5 +37,5 @@ def parse_alerts_paused(value: str | None) -> bool:
 
 
 def threshold_for_direction(upward: bool, upward_threshold: float) -> float:
-    """Only the upward trigger is adjustable; the downside remains at -10%."""
+    """Only the upward trigger is adjustable; the downside is fixed at -30%."""
     return upward_threshold if upward else DOWNWARD_ALERT_THRESHOLD

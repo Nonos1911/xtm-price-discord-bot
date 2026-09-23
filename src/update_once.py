@@ -700,11 +700,12 @@ def clear_alert_if_below_threshold(
 
 def run_fake_alert_progression() -> None:
     """Exercise one green and one red message through a four-minute fake progression."""
-    steps = [10.0, 25.0, 100.0, 200.0, 300.0]
-    for index, magnitude in enumerate(steps):
+    upward_steps = [10.0, 25.0, 100.0, 200.0, 300.0]
+    downward_steps = [30.0, 30.0, 100.0, 200.0, 300.0]
+    for index in range(len(upward_steps)):
         for upward, change, color in (
-            (True, magnitude, 5763719),
-            (False, -magnitude, 15158332),
+            (True, upward_steps[index], 5763719),
+            (False, -downward_steps[index], 15158332),
         ):
             # Fake a matching spot price from a 0.001 USDT baseline. A spot price
             # cannot fall below zero, so simulated drops beyond -100% stay at zero.
@@ -725,7 +726,7 @@ def run_fake_alert_progression() -> None:
                 notify_everyone=True,
             )
             print(f"Minute {index}: {result}")
-        if index < len(steps) - 1:
+        if index < len(upward_steps) - 1:
             print("Attente de 60 secondes avant la prochaine variation simulée.", flush=True)
             time.sleep(60)
 
@@ -791,13 +792,19 @@ def run_color_badge_progression_3min() -> None:
     """Refresh paired positive/negative test alerts for three full minutes."""
     removed = remove_obsolete_test_alert()
     print(f"Ancienne alerte de test renommée supprimée: {removed}", flush=True)
-    progressions = [(12.0, 14.0), (15.0, 17.0), (18.0, 20.0), (22.0, 24.0)]
+    upward_progressions = [(12.0, 14.0), (15.0, 17.0), (18.0, 20.0), (22.0, 24.0)]
+    downward_progressions = [(32.0, 34.0), (35.0, 37.0), (38.0, 40.0), (42.0, 44.0)]
     previous_by_direction = {
         True: {"XTM": 0.0, "wXTM": 0.0},
         False: {"XTM": 0.0, "wXTM": 0.0},
     }
-    for minute, (xtm_change, wxtm_change) in enumerate(progressions):
+    for minute in range(len(upward_progressions)):
         for upward, color in ((True, 5763719), (False, 15158332)):
+            xtm_change, wxtm_change = (
+                upward_progressions[minute]
+                if upward
+                else downward_progressions[minute]
+            )
             sign = 1 if upward else -1
             quotes = [
                 {
@@ -845,7 +852,7 @@ def run_color_badge_progression_3min() -> None:
                 "XTM": sign * xtm_change,
                 "wXTM": sign * wxtm_change,
             }
-        if minute < len(progressions) - 1:
+        if minute < len(upward_progressions) - 1:
             print("Attente de 60 secondes avant la prochaine actualisation simulée.", flush=True)
             time.sleep(60)
 

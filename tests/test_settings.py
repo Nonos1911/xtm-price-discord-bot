@@ -27,7 +27,7 @@ def test_rejects_unsupported_upward_thresholds(threshold):
 def test_configuration_defaults_and_directional_thresholds():
     assert parse_upward_alert_threshold(None) == DEFAULT_UPWARD_ALERT_THRESHOLD == 10
     assert threshold_for_direction(True, 30) == 30
-    assert threshold_for_direction(False, 30) == 10
+    assert threshold_for_direction(False, 30) == 30
 
 
 @pytest.mark.parametrize("value", ["true", "1", "yes", "on", "pause"])

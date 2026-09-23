@@ -126,12 +126,12 @@ def test_alert_thresholds_are_inclusive_for_both_assets():
     assert [quote["label"] for quote in alert_quotes_for_direction(quotes, upward=True)] == ["wXTM"]
     assert alert_quotes_for_direction(quotes, upward=False) == []
     quotes = [
-        {"label": "XTM", "change": -10.0},
-        {"label": "wXTM", "change": -9.99},
+        {"label": "XTM", "change": -30.0},
+        {"label": "wXTM", "change": -29.99},
     ]
     assert [quote["label"] for quote in alert_quotes_for_direction(quotes, upward=False)] == ["XTM"]
     assert alert_quotes_for_direction([{"label": "XTM", "change": 10.0}], upward=True)
-    assert alert_quotes_for_direction([{"label": "wXTM", "change": -10.0}], upward=False)
+    assert alert_quotes_for_direction([{"label": "wXTM", "change": -30.0}], upward=False)
     assert alert_quotes_for_direction([{"label": "unknown", "change": 500}], upward=True) == []
 
 
@@ -142,7 +142,8 @@ def test_manual_threshold_changes_upside_only(monkeypatch):
         {"label": "wXTM", "change": 20.0},
     ]
     assert [q["label"] for q in alert_quotes_for_direction(quotes, upward=True)] == ["wXTM"]
-    assert alert_quotes_for_direction([{"label": "XTM", "change": -10.0}], upward=False)
+    assert not alert_quotes_for_direction([{"label": "XTM", "change": -10.0}], upward=False)
+    assert alert_quotes_for_direction([{"label": "XTM", "change": -30.0}], upward=False)
     assert format_group_alert_text([quotes[1]], upward=True) == "Alerte wXTM +20%"
 
 
@@ -195,8 +196,8 @@ def test_group_alert_names_only_affected_assets_and_can_handle_both():
     assert format_group_alert_text(one, upward=True) == "Alerte wXTM +17.19%"
     assert format_group_alert_text(both, upward=True) == "Alerte XTM +10% | wXTM +17.19%"
     assert format_group_alert_text(
-        [{"label": "wXTM", "change": -17.19}], upward=False
-    ) == "Alerte wXTM -17.19%  GO BUY"
+        [{"label": "wXTM", "change": -30.0}], upward=False
+    ) == "Alerte wXTM -30%  GO BUY"
     embed = build_alert_embed(
         format_group_alert_text(both, upward=True),
         5763719,
@@ -282,17 +283,17 @@ def test_wxtm_only_alert_embed_excludes_unaffected_xtm():
         previous_changes={"wXTM": 18.7},
     )
     assert neutral_trend_embed["description"] == "🟡 ~ 0.00% — **wXTM**"
-    assert format_alert_text(-10, upward=False) == "Alerte XTM -10%  GO BUY"
+    assert format_alert_text(-30, upward=False) == "Alerte XTM -30%  GO BUY"
     assert format_alert_text(10, upward=True) == "Alerte XTM +10%"
     assert format_alert_text(15.678, upward=True) == "Alerte XTM +15.68%"
-    assert format_alert_text(-15.678, upward=False) == "Alerte XTM -15.68%  GO BUY"
+    assert format_alert_text(-15.678, upward=False) == "Alerte XTM -30%  GO BUY"
     assert format_alert_text(450, upward=True) == "Alerte XTM +300%"
     assert format_alert_text(-450, upward=False) == "Alerte XTM -300%  GO BUY"
     embed = build_alert_embed(
-        format_alert_text(-10, upward=False),
+        format_alert_text(-30, upward=False),
         15158332,
         [
-            {"label": "XTM", "price": 0.001, "change": -10.0, "market": "MEXC", "error": None},
+            {"label": "XTM", "price": 0.001, "change": -30.0, "market": "MEXC", "error": None},
             {"label": "wXTM", "price": 0.002, "currency": "USD", "change": -2.0, "market": "Uniswap V4 (Ethereum)", "error": None},
         ],
     )
@@ -534,8 +535,8 @@ def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
 
     monkeypatch.setattr(update_once, "api_json", fake_api_json)
     update_once.upsert_alert(
-        "Alerte XTM -10%  GO BUY", 15158332,
-        [{"label": "XTM", "price": 0.001, "change": -10, "market": "MEXC", "error": None}],
+        "Alerte XTM -30%  GO BUY", 15158332,
+        [{"label": "XTM", "price": 0.001, "change": -30, "market": "MEXC", "error": None}],
         upward=False,
     )
 
@@ -543,8 +544,8 @@ def test_upsert_alert_creates_one_message_with_everyone_ping(monkeypatch):
     assert calls[2][2]["content"] == "@everyone"
     assert calls[2][2]["allowed_mentions"] == {"parse": ["everyone"]}
     assert calls[2][2]["embeds"][0]["footer"]["text"] == (
-        "Palier @everyone notifié : -10%\n"
-        "Prochains paliers @everyone : -20% / -30% / -40% …"
+        "Palier @everyone notifié : -30%\n"
+        "Prochains paliers @everyone : -40% / -50% / -60% …"
     )
 
 
@@ -765,11 +766,11 @@ def test_test_alert_can_show_color_and_delta_after_short_label():
         show_trend_for_test=True,
     )
     negative = update_once.build_alert_embed(
-        "Alerte XTM -12% | wXTM -14%  GO BUY",
+        "Alerte XTM -30% | wXTM -30%  GO BUY",
         15158332,
         [
-            {"label": "XTM", "price": 0.00088, "change": -12.0, "market": "MEXC", "error": None},
-            {"label": "wXTM", "price": 0.00172, "change": -14.0, "market": "Uniswap", "error": None},
+            {"label": "XTM", "price": 0.00070, "change": -30.0, "market": "MEXC", "error": None},
+            {"label": "wXTM", "price": 0.00140, "change": -30.0, "market": "Uniswap", "error": None},
         ],
         previous_changes={"XTM": 0.0, "wXTM": 0.0},
         upward=False,
@@ -779,8 +780,8 @@ def test_test_alert_can_show_color_and_delta_after_short_label():
 
     assert positive["title"] == "[test] Alerte XTM +12% | wXTM +14%"
     assert positive["description"] == "🟢 + 12.00% — **XTM**\n🟢 + 14.00% — **wXTM**"
-    assert negative["title"] == "[test] Alerte XTM -12% | wXTM -14%  GO BUY"
-    assert negative["description"] == "🔴 - 12.00% — **XTM**\n🔴 - 14.00% — **wXTM**"
+    assert negative["title"] == "[test] Alerte XTM -30% | wXTM -30%  GO BUY"
+    assert negative["description"] == "🔴 - 30.00% — **XTM**\n🔴 - 30.00% — **wXTM**"
 
 
 def test_alert_embed_keeps_xtm_and_wxtm_trend_colors_independent_above_threshold():
@@ -824,7 +825,7 @@ def test_three_minute_color_progression_keeps_both_assets_beyond_threshold(monke
     assert all(alert[3]["show_trend_for_test"] is True for alert in alerts)
     assert all(len(changes) == 2 for _, _, changes, _ in alerts)
     assert all(changes[0] >= 12 and changes[1] >= 14 for _, color, changes, _ in alerts if color == 5763719)
-    assert all(changes[0] <= -12 and changes[1] <= -14 for _, color, changes, _ in alerts if color == 15158332)
+    assert all(changes[0] <= -32 and changes[1] <= -34 for _, color, changes, _ in alerts if color == 15158332)
     assert pauses == [60, 60, 60]
 
 
@@ -929,8 +930,8 @@ def test_fake_four_minute_progression_uses_one_green_and_red_box(monkeypatch):
     update_once.run_fake_alert_progression()
 
     assert [alert[0] for alert in alerts] == [
-        "Alerte XTM +10%", "Alerte XTM -10%  GO BUY",
-        "Alerte XTM +25%", "Alerte XTM -25%  GO BUY",
+        "Alerte XTM +10%", "Alerte XTM -30%  GO BUY",
+        "Alerte XTM +25%", "Alerte XTM -30%  GO BUY",
         "Alerte XTM +100%", "Alerte XTM -100%  GO BUY",
         "Alerte XTM +200%", "Alerte XTM -200%  GO BUY",
         "Alerte XTM +300%", "Alerte XTM -300%  GO BUY",
@@ -942,10 +943,10 @@ def test_fake_four_minute_progression_uses_one_green_and_red_box(monkeypatch):
         "Alerte XTM +10%", "Alerte XTM +25%", "Alerte XTM +100%", "Alerte XTM +200%", "Alerte XTM +300%"
     ]
     assert [alert[2] for alert in alerts[::2]] == [10, 25, 100, 200, 300]
-    assert [alert[2] for alert in alerts[1::2]] == [-10, -25, -100, -200, -300]
-    assert [alert[2] for alert in alerts] == [10, -10, 25, -25, 100, -100, 200, -200, 300, -300]
+    assert [alert[2] for alert in alerts[1::2]] == [-30, -30, -100, -200, -300]
+    assert [alert[2] for alert in alerts] == [10, -30, 25, -30, 100, -100, 200, -200, 300, -300]
     assert [round(alert[3], 8) for alert in alerts[::2]] == [0.0011, 0.00125, 0.002, 0.003, 0.004]
-    assert [round(alert[3], 8) for alert in alerts[1::2]] == [0.0009, 0.00075, 0.0, 0.0, 0.0]
+    assert [round(alert[3], 8) for alert in alerts[1::2]] == [0.0007, 0.0007, 0.0, 0.0, 0.0]
     assert pauses == [60, 60, 60, 60]
 
 
