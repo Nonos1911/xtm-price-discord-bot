@@ -91,7 +91,7 @@ def test_four_hour_snapshot_puts_wxtm_dollar_price_first():
 
     assert "title" not in embed
     assert embed["description"] == (
-        "wXTM : 𝟎.𝟎𝟎𝟐𝟒𝟑$ & XTM : 𝟎.𝟎𝟎𝟏𝟐𝟑$\n"
+        "🟡 wXTM : 𝟎.𝟎𝟎𝟐𝟒𝟑$ & 🟡 XTM : 𝟎.𝟎𝟎𝟏𝟐𝟑$\n"
         "XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 "
         "(prix USD affiché à parité)."
     )
@@ -99,6 +99,24 @@ def test_four_hour_snapshot_puts_wxtm_dollar_price_first():
     assert all(field["inline"] for field in embed["fields"])
     assert embed["fields"][0]["value"] == "**0.00123 USDT**\nvariation 24 h indisponible\nvariation 1 h indisponible\nMarché : MEXC"
     assert embed["fields"][1]["value"] == "**0.00243 USDT**\nvariation 24 h indisponible\nvariation 1 h indisponible\nMarché : Uniswap V4 (Ethereum)"
+
+
+def test_four_hour_snapshot_marks_rising_and_falling_prices_for_mobile():
+    rising = build_snapshot_embed([
+        {"label": "XTM", "price": 0.001, "market": "MEXC", "change": 4.0, "change_1h": 1.0},
+        {"label": "wXTM", "price": 0.002, "market": "Uniswap V4", "change": 8.0, "change_1h": 2.0},
+    ], "Snapshot")
+    falling = build_snapshot_embed([
+        {"label": "XTM", "price": 0.001, "market": "MEXC", "change": -4.0, "change_1h": -1.0},
+        {"label": "wXTM", "price": 0.002, "market": "Uniswap V4", "change": -8.0, "change_1h": -2.0},
+    ], "Snapshot")
+
+    assert rising["description"].startswith("🟢 wXTM :")
+    assert "🟢 XTM :" in rising["description"]
+    assert rising["color"] == 0x39FF14
+    assert falling["description"].startswith("🔴 wXTM :")
+    assert "🔴 XTM :" in falling["description"]
+    assert falling["color"] == 0xFF0000
 
 
 def test_price_text_shows_hourly_variation_after_daily_variation():

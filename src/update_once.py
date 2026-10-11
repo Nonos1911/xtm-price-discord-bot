@@ -43,6 +43,9 @@ ALERT_MILESTONE_FOOTER = "Palier @everyone notifié : "
 ALERT_PERCENT_RE = re.compile(r"(?:XTM|wXTM)\s*([+-])\s*(\d+(?:\.\d+)?)%")
 PRICE_CHANGE_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)\s*%\s*sur 24 h", re.IGNORECASE)
 COINS = [("minotari", "XTM", "MEXC"), ("wrapped-minotari", "wXTM", "Uniswap V4")]
+SNAPSHOT_GREEN = 0x39FF14
+SNAPSHOT_RED = 0xFF0000
+SNAPSHOT_NEUTRAL = 0x808080
 
 
 def api_json(url: str, *, headers: dict[str, str] | None = None, method: str = "GET", body: Any = None) -> Any:
@@ -343,18 +346,44 @@ def snapshot_price(quote: dict[str, Any] | None) -> str:
     return formatted.translate(digits)
 
 
+def snapshot_trend_marker(quote: dict[str, Any] | None) -> str:
+    """Return a phone-visible trend marker for one asset's 24 h movement."""
+    if not quote or quote.get("change") is None:
+        return "🟡"
+    return "🟢" if float(quote["change"]) > 0 else "🔴"
+
+
+def snapshot_color(quotes: list[dict[str, Any]]) -> int:
+    """Use the combined 24 h direction for the embed accent color."""
+    changes = [
+        float(quote["change"])
+        for quote in quotes
+        if quote.get("change") is not None
+    ]
+    if not changes:
+        return SNAPSHOT_NEUTRAL
+    average_change = sum(changes) / len(changes)
+    if average_change > 0:
+        return SNAPSHOT_GREEN
+    if average_change < 0:
+        return SNAPSHOT_RED
+    return SNAPSHOT_NEUTRAL
+
+
 def build_snapshot_embed(quotes: list[dict[str, Any]], footer_text: str) -> dict[str, Any]:
     """Build the compact four-hour report with wXTM shown before XTM."""
     by_label = {str(quote.get("label")): quote for quote in quotes}
     description = (
-        f"wXTM : {snapshot_price(by_label.get('wXTM'))} & "
-        f"XTM : {snapshot_price(by_label.get('XTM'))}\n"
+        f"{snapshot_trend_marker(by_label.get('wXTM'))} wXTM : "
+        f"{snapshot_price(by_label.get('wXTM'))} & "
+        f"{snapshot_trend_marker(by_label.get('XTM'))} XTM : "
+        f"{snapshot_price(by_label.get('XTM'))}\n"
         "XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 "
         "(prix USD affiché à parité)."
     )
     return {
         "description": description,
-        "color": 5793266,
+        "color": snapshot_color(quotes),
         "fields": [
             {"name": quote["label"], "value": price_text(quote), "inline": True}
             for quote in (by_label.get("XTM"), by_label.get("wXTM"))
