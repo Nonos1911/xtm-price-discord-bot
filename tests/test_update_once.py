@@ -91,7 +91,7 @@ def test_four_hour_snapshot_puts_wxtm_dollar_price_first():
 
     assert "title" not in embed
     assert embed["description"] == (
-        "🟡 wXTM : 𝟎.𝟎𝟎𝟐𝟒𝟑$ & 🟡 XTM : 𝟎.𝟎𝟎𝟏𝟐𝟑$\n"
+        "wXTM : 🟡 𝟎.𝟎𝟎𝟐𝟒𝟑$ & XTM : 🟡 𝟎.𝟎𝟎𝟏𝟐𝟑$\n"
         "XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 "
         "(prix USD affiché à parité)."
     )
@@ -111,11 +111,11 @@ def test_four_hour_snapshot_marks_rising_and_falling_prices_for_mobile():
         {"label": "wXTM", "price": 0.002, "market": "Uniswap V4", "change": -8.0, "change_1h": -2.0},
     ], "Snapshot")
 
-    assert rising["description"].startswith("🟢 wXTM :")
-    assert "🟢 XTM :" in rising["description"]
+    assert rising["description"].startswith("wXTM : 🟢")
+    assert "XTM : 🟢" in rising["description"]
     assert rising["color"] == 0x39FF14
-    assert falling["description"].startswith("🔴 wXTM :")
-    assert "🔴 XTM :" in falling["description"]
+    assert falling["description"].startswith("wXTM : 🔴")
+    assert "XTM : 🔴" in falling["description"]
     assert falling["color"] == 0xFF0000
 
 
