@@ -85,8 +85,8 @@ def test_embed_has_both_assets():
 
 def test_four_hour_snapshot_puts_wxtm_dollar_price_first():
     embed = build_snapshot_embed([
-        {"label": "XTM", "price": 0.00123456},
-        {"label": "wXTM", "price": 0.00242891},
+        {"label": "XTM", "price": 0.00123456, "market": "MEXC", "change": None, "change_1h": None},
+        {"label": "wXTM", "price": 0.00242891, "market": "Uniswap V4 (Ethereum)", "change": None, "change_1h": None},
     ], "Snapshot du prix toutes les 4 heures")
 
     assert "title" not in embed
@@ -95,7 +95,9 @@ def test_four_hour_snapshot_puts_wxtm_dollar_price_first():
         "XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 "
         "(prix USD affiché à parité)."
     )
-    assert "fields" not in embed
+    assert [field["name"] for field in embed["fields"]] == ["wXTM", "XTM"]
+    assert embed["fields"][0]["value"] == "**0.00243 USDT**\nvariation 24 h indisponible\nvariation 1 h indisponible\nMarché : Uniswap V4 (Ethereum)"
+    assert embed["fields"][1]["value"] == "**0.00123 USDT**\nvariation 24 h indisponible\nvariation 1 h indisponible\nMarché : MEXC"
 
 
 def test_price_text_shows_hourly_variation_after_daily_variation():
