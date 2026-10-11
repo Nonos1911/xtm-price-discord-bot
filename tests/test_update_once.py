@@ -95,9 +95,10 @@ def test_four_hour_snapshot_puts_wxtm_dollar_price_first():
         "XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 "
         "(prix USD affiché à parité)."
     )
-    assert [field["name"] for field in embed["fields"]] == ["wXTM", "XTM"]
-    assert embed["fields"][0]["value"] == "**0.00243 USDT**\nvariation 24 h indisponible\nvariation 1 h indisponible\nMarché : Uniswap V4 (Ethereum)"
-    assert embed["fields"][1]["value"] == "**0.00123 USDT**\nvariation 24 h indisponible\nvariation 1 h indisponible\nMarché : MEXC"
+    assert [field["name"] for field in embed["fields"]] == ["XTM", "wXTM"]
+    assert all(field["inline"] for field in embed["fields"])
+    assert embed["fields"][0]["value"] == "**0.00123 USDT**\nvariation 24 h indisponible\nvariation 1 h indisponible\nMarché : MEXC"
+    assert embed["fields"][1]["value"] == "**0.00243 USDT**\nvariation 24 h indisponible\nvariation 1 h indisponible\nMarché : Uniswap V4 (Ethereum)"
 
 
 def test_price_text_shows_hourly_variation_after_daily_variation():

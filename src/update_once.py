@@ -354,8 +354,8 @@ def build_snapshot_embed(quotes: list[dict[str, Any]], footer_text: str) -> dict
         "description": description,
         "color": 5793266,
         "fields": [
-            {"name": quote["label"], "value": price_text(quote), "inline": False}
-            for quote in (by_label.get("wXTM"), by_label.get("XTM"))
+            {"name": quote["label"], "value": price_text(quote), "inline": True}
+            for quote in (by_label.get("XTM"), by_label.get("wXTM"))
             if quote is not None
         ],
         "footer": {"text": footer_text},
