@@ -334,6 +334,31 @@ def build_price_embed(quotes: list[dict[str, Any]], footer_text: str) -> dict[st
     }
 
 
+def snapshot_price(quote: dict[str, Any] | None) -> str:
+    """Format one snapshot price as a dollar amount, or show its absence."""
+    if not quote or quote.get("price") is None:
+        return "indisponible"
+    return f"{float(quote['price']):.5f}$"
+
+
+def build_snapshot_embed(quotes: list[dict[str, Any]], footer_text: str) -> dict[str, Any]:
+    """Build the compact four-hour report with wXTM shown before XTM."""
+    by_label = {str(quote.get("label")): quote for quote in quotes}
+    description = (
+        f"wXTM : {snapshot_price(by_label.get('wXTM'))} & "
+        f"XTM : {snapshot_price(by_label.get('XTM'))}\n"
+        "XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 "
+        "(prix USD affiché à parité)."
+    )
+    return {
+        "title": PRICE_EMBED_TITLE,
+        "description": description,
+        "color": 5793266,
+        "footer": {"text": footer_text},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def update_discord(embed: dict[str, Any], *, previous_changes: dict[str, float] | None = None) -> str:
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
@@ -1046,7 +1071,7 @@ def main() -> int:
     if not any(quote["price"] is not None for quote in quotes):
         raise RuntimeError("Aucun prix USDT disponible; aucun message n'a été modifié")
     if os.getenv("SNAPSHOT_ONLY", "false").strip().lower() == "true":
-        snapshot = build_price_embed(quotes, "Snapshot du prix toutes les 4 heures")
+        snapshot = build_snapshot_embed(quotes, "Snapshot du prix toutes les 4 heures")
         print(publish_snapshot(snapshot))
         return 0
     previous_changes: dict[str, float] = {}

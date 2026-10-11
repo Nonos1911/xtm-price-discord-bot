@@ -16,6 +16,7 @@ from update_once import (
     build_alert_embed,
     build_embed,
     build_price_embed,
+    build_snapshot_embed,
     extract_alert_changes,
     extract_previous_price_changes,
     format_alert_delta_lines,
@@ -80,6 +81,21 @@ def test_embed_has_both_assets():
     assert "0.00243 USDT" in price_text({"label": "wXTM", "price": 0.002428, "currency": "USD", "change": 1.5, "market": "Uniswap", "error": None})
     assert embed["footer"]["text"] == "Mise à jour toutes les minutes"
     assert build_price_embed([], "Snapshot du prix toutes les 4 heures")["footer"]["text"] == "Snapshot du prix toutes les 4 heures"
+
+
+def test_four_hour_snapshot_puts_wxtm_dollar_price_first():
+    embed = build_snapshot_embed([
+        {"label": "XTM", "price": 0.00123456},
+        {"label": "wXTM", "price": 0.00242891},
+    ], "Snapshot du prix toutes les 4 heures")
+
+    assert embed["title"] == "💱 Prix XTM / wXTM"
+    assert embed["description"] == (
+        "wXTM : 0.00243$ & XTM : 0.00123$\n"
+        "XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 "
+        "(prix USD affiché à parité)."
+    )
+    assert "fields" not in embed
 
 
 def test_price_text_shows_hourly_variation_after_daily_variation():
