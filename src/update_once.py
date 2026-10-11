@@ -375,7 +375,7 @@ def build_snapshot_embed(quotes: list[dict[str, Any]], footer_text: str) -> dict
     by_label = {str(quote.get("label")): quote for quote in quotes}
     description = (
         f"wXTM : {snapshot_trend_marker(by_label.get('wXTM'))} "
-        f"{snapshot_price(by_label.get('wXTM'))} & "
+        f"{snapshot_price(by_label.get('wXTM'))}\n"
         f"XTM : {snapshot_trend_marker(by_label.get('XTM'))} "
         f"{snapshot_price(by_label.get('XTM'))}\n"
         "XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 "
