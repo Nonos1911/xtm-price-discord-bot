@@ -351,7 +351,6 @@ def build_snapshot_embed(quotes: list[dict[str, Any]], footer_text: str) -> dict
         "(prix USD affiché à parité)."
     )
     return {
-        "title": PRICE_EMBED_TITLE,
         "description": description,
         "color": 5793266,
         "footer": {"text": footer_text},

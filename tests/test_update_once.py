@@ -89,7 +89,7 @@ def test_four_hour_snapshot_puts_wxtm_dollar_price_first():
         {"label": "wXTM", "price": 0.00242891},
     ], "Snapshot du prix toutes les 4 heures")
 
-    assert embed["title"] == "💱 Prix XTM / wXTM"
+    assert "title" not in embed
     assert embed["description"] == (
         "wXTM : 0.00243$ & XTM : 0.00123$\n"
         "XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 "
