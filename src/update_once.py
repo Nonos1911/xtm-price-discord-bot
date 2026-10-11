@@ -338,7 +338,9 @@ def snapshot_price(quote: dict[str, Any] | None) -> str:
     """Format one snapshot price as a dollar amount, or show its absence."""
     if not quote or quote.get("price") is None:
         return "indisponible"
-    return f"**{float(quote['price']):.5f}$**"
+    digits = str.maketrans("0123456789", "𝟎𝟏𝟐𝟑𝟒𝟓𝟔𝟕𝟖𝟗")
+    formatted = f"{float(quote['price']):.5f}$"
+    return formatted.translate(digits)
 
 
 def build_snapshot_embed(quotes: list[dict[str, Any]], footer_text: str) -> dict[str, Any]:

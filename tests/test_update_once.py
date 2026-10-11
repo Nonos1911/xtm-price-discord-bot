@@ -91,7 +91,7 @@ def test_four_hour_snapshot_puts_wxtm_dollar_price_first():
 
     assert "title" not in embed
     assert embed["description"] == (
-        "wXTM : **0.00243$** & XTM : **0.00123$**\n"
+        "wXTM : 𝟎.𝟎𝟎𝟐𝟒𝟑$ & XTM : 𝟎.𝟎𝟎𝟏𝟐𝟑$\n"
         "XTM/USDT sur MEXC ; wXTM/USDT indicatif depuis Uniswap V4 "
         "(prix USD affiché à parité)."
     )
